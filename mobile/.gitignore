@@ -1,0 +1,12 @@
+node_modules/
+npm-debug.log
+.DS_Store
+*.log
+.env
+ios/Pods/
+ios/build/
+android/app/build/
+android/build/
+.expo/
+.expo-shared/
+

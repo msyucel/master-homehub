@@ -1,0 +1,76 @@
+services:
+  # MySQL Database
+  mysql:
+    image: mysql:8.0
+    container_name: homehub-mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: rootpassword
+      MYSQL_DATABASE: homehub
+      MYSQL_USER: homehub_user
+      MYSQL_PASSWORD: homehub_password
+    ports:
+      - "3306:3306"
+    volumes:
+      - ./database:/var/lib/mysql
+    networks:
+      - homehub-network
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Node.js Backend
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: homehub-backend
+    restart: unless-stopped
+    environment:
+      PORT: 3001
+      DB_HOST: mysql
+      DB_USER: root
+      DB_PASSWORD: rootpassword
+      DB_NAME: homehub
+      NODE_ENV: production
+    ports:
+      - "3001:3001"
+    depends_on:
+      mysql:
+        condition: service_healthy
+    networks:
+      - homehub-network
+    volumes:
+      - ./backend:/app
+      - /app/node_modules
+    command: npm start
+
+  # React Native Mobile (Metro Bundler)
+  mobile:
+    build:
+      context: ./mobile
+      dockerfile: Dockerfile
+    container_name: homehub-mobile
+    restart: unless-stopped
+    environment:
+      REACT_NATIVE_PACKAGER_HOSTNAME: localhost
+      NODE_ENV: development
+    ports:
+      - "8081:8081"
+      - "19000:19000"
+      - "19001:19001"
+    depends_on:
+      - backend
+    networks:
+      - homehub-network
+    volumes:
+      - ./mobile:/app
+      - /app/node_modules
+    command: npm start
+
+networks:
+  homehub-network:
+    driver: bridge
+
