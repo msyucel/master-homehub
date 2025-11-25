@@ -1,0 +1,111 @@
+<div class="signup-container">
+  <div class="signup-card">
+    <h1>Create Account</h1>
+    <p class="subtitle">Sign up for HomeHub</p>
+
+    <form [formGroup]="signupForm" (ngSubmit)="onSubmit()">
+      <div class="form-row">
+        <div class="form-group">
+          <label for="firstName">First Name</label>
+          <input
+            id="firstName"
+            type="text"
+            formControlName="firstName"
+            placeholder="First name"
+            [class.error]="signupForm.get('firstName')?.invalid && signupForm.get('firstName')?.touched"
+          />
+          @if (signupForm.get('firstName')?.invalid && signupForm.get('firstName')?.touched) {
+            <span class="error-text">First name is required (min 2 characters)</span>
+          }
+        </div>
+
+        <div class="form-group">
+          <label for="lastName">Last Name</label>
+          <input
+            id="lastName"
+            type="text"
+            formControlName="lastName"
+            placeholder="Last name"
+            [class.error]="signupForm.get('lastName')?.invalid && signupForm.get('lastName')?.touched"
+          />
+          @if (signupForm.get('lastName')?.invalid && signupForm.get('lastName')?.touched) {
+            <span class="error-text">Last name is required (min 2 characters)</span>
+          }
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label for="email">Email</label>
+        <input
+          id="email"
+          type="email"
+          formControlName="email"
+          placeholder="Enter your email"
+          [class.error]="signupForm.get('email')?.invalid && signupForm.get('email')?.touched"
+        />
+        @if (signupForm.get('email')?.invalid && signupForm.get('email')?.touched) {
+          <span class="error-text">Please enter a valid email</span>
+        }
+      </div>
+
+      <div class="form-group">
+        <label for="phoneNumber">Phone Number (Optional)</label>
+        <input
+          id="phoneNumber"
+          type="tel"
+          formControlName="phoneNumber"
+          placeholder="Enter your phone number"
+        />
+      </div>
+
+      <div class="form-group">
+        <label for="password">Password</label>
+        <input
+          id="password"
+          type="password"
+          formControlName="password"
+          placeholder="Create a password"
+          [class.error]="signupForm.get('password')?.invalid && signupForm.get('password')?.touched"
+        />
+        @if (signupForm.get('password')?.invalid && signupForm.get('password')?.touched) {
+          <span class="error-text">Password must be at least 6 characters</span>
+        }
+      </div>
+
+      <div class="form-group">
+        <label for="confirmPassword">Confirm Password</label>
+        <input
+          id="confirmPassword"
+          type="password"
+          formControlName="confirmPassword"
+          placeholder="Confirm your password"
+          [class.error]="signupForm.get('confirmPassword')?.hasError('passwordMismatch') && signupForm.get('confirmPassword')?.touched"
+        />
+        @if (signupForm.get('confirmPassword')?.hasError('passwordMismatch') && signupForm.get('confirmPassword')?.touched) {
+          <span class="error-text">Passwords do not match</span>
+        }
+      </div>
+
+      @if (errorMessage()) {
+        <div class="error-message">{{ errorMessage() }}</div>
+      }
+
+      <button
+        type="submit"
+        class="submit-button"
+        [disabled]="signupForm.invalid || isLoading()"
+      >
+        @if (isLoading()) {
+          <span>Creating account...</span>
+        } @else {
+          <span>Sign Up</span>
+        }
+      </button>
+    </form>
+
+    <p class="login-link">
+      Already have an account? <a routerLink="/login">Sign in</a>
+    </p>
+  </div>
+</div>
+

@@ -16,7 +16,7 @@ NC='\033[0m' # No Color
 BACKEND_URL="http://localhost:3001"
 MYSQL_CONTAINER="homehub-mysql"
 BACKEND_CONTAINER="homehub-backend"
-MOBILE_CONTAINER="homehub-mobile"
+WEB_UI_CONTAINER="homehub-web-ui"
 
 # Test counters
 TESTS_PASSED=0
@@ -76,10 +76,10 @@ test_containers_running() {
         print_result 1 "Backend container is not running"
     fi
     
-    if docker ps | grep -q "$MOBILE_CONTAINER"; then
-        print_result 0 "Mobile container is running"
+    if docker ps | grep -q "$WEB_UI_CONTAINER"; then
+        print_result 0 "Web UI container is running"
     else
-        print_result 1 "Mobile container is not running"
+        print_result 1 "Web UI container is not running"
     fi
 }
 
@@ -264,20 +264,20 @@ test_data_persistence() {
     fi
 }
 
-# Test 11: Mobile Metro Bundler
-test_mobile_bundler() {
-    print_header "Test 11: Mobile Metro Bundler"
+# Test 11: Web UI Status
+test_web_ui() {
+    print_header "Test 11: Web UI Status"
     
-    if curl -s "http://localhost:8081/status" > /dev/null 2>&1; then
-        status=$(curl -s "http://localhost:8081/status")
-        if echo "$status" | grep -q "running"; then
-            print_result 0 "Metro bundler is running"
-            echo "Status: $status"
+    if curl -s "http://localhost:8080" > /dev/null 2>&1; then
+        status_code=$(curl -s -o /dev/null -w "%{http_code}" "http://localhost:8080")
+        if [ "$status_code" -eq 200 ] || [ "$status_code" -eq 304 ]; then
+            print_result 0 "Web UI is accessible"
+            echo "Status: HTTP $status_code"
         else
-            print_result 1 "Metro bundler status check failed"
+            print_result 1 "Web UI returned status code: $status_code"
         fi
     else
-        print_result 1 "Metro bundler is not accessible"
+        print_result 1 "Web UI is not accessible"
     fi
 }
 
@@ -324,7 +324,7 @@ main() {
     test_update_task
     test_delete_task
     test_data_persistence
-    test_mobile_bundler
+    test_web_ui
     
     # Print summary
     print_summary

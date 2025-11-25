@@ -1,0 +1,32 @@
+@if (isAuthenticated()) {
+  <nav class="navbar">
+    <div class="nav-container">
+      <div class="nav-brand">
+        <a routerLink="/homes" class="brand-link">🏠 HomeHub</a>
+      </div>
+      
+      <div class="nav-links">
+        <a routerLink="/homes" routerLinkActive="active" [routerLinkActiveOptions]="{exact: false}">
+          Homes
+        </a>
+        <a routerLink="/families" routerLinkActive="active">
+          Families
+        </a>
+        <a routerLink="/notifications" routerLinkActive="active">
+          Notifications
+        </a>
+        <a routerLink="/profile" routerLinkActive="active">
+          Profile
+        </a>
+      </div>
+
+      @if (user(); as currentUser) {
+        <div class="nav-user">
+          <span class="user-name">{{ currentUser.first_name }} {{ currentUser.last_name }}</span>
+          <button class="logout-btn" (click)="logout()">Logout</button>
+        </div>
+      }
+    </div>
+  </nav>
+}
+

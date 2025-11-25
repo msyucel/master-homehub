@@ -1,0 +1,60 @@
+<div class="notifications-container">
+  <div class="header-section">
+    <h1>🔔 Notifications</h1>
+  </div>
+
+  @if (errorMessage(); as error) {
+    <div class="error-message">{{ error }}</div>
+  }
+
+  @if (isLoading()) {
+    <div class="loading">Loading notifications...</div>
+  }
+
+  @if (!isLoading() && notifications().length === 0) {
+    <div class="empty-state">
+      <p>No notifications yet.</p>
+    </div>
+  }
+
+  <div class="notifications-list">
+    @for (notification of notifications(); track notification.id) {
+      <div class="notification-card" [class.unread]="!notification.is_read" (click)="markAsRead(notification)">
+        <div class="notification-icon">
+          {{ getNotificationIcon(notification.type) }}
+        </div>
+        <div class="notification-content">
+          <div class="notification-header">
+            <h3>{{ notification.title }}</h3>
+            @if (!notification.is_read) {
+              <span class="unread-badge">New</span>
+            }
+          </div>
+          <p class="notification-message">{{ notification.message }}</p>
+          <p class="notification-date">{{ notification.created_at | date:'medium' }}</p>
+          @if (notification.type === 'family_request' && !notification.is_read) {
+            <div class="notification-actions">
+              <button class="accept-button" (click)="handleFamilyRequest(notification, 'accept'); $event.stopPropagation()">
+                Accept
+              </button>
+              <button class="reject-button" (click)="handleFamilyRequest(notification, 'reject'); $event.stopPropagation()">
+                Reject
+              </button>
+            </div>
+          }
+          @if (isHomeMemberRequest(notification) && !notification.is_read) {
+            <div class="notification-actions">
+              <button class="accept-button" (click)="handleHomeMemberRequest(notification, 'accept'); $event.stopPropagation()">
+                Accept
+              </button>
+              <button class="reject-button" (click)="handleHomeMemberRequest(notification, 'reject'); $event.stopPropagation()">
+                Reject
+              </button>
+            </div>
+          }
+        </div>
+      </div>
+    }
+  </div>
+</div>
+

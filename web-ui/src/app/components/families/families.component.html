@@ -1,0 +1,100 @@
+<div class="families-container">
+  <div class="header-section">
+    <h1>👨‍👩‍👧‍👦 My Family</h1>
+    <button class="add-button" (click)="toggleForm()">
+      {{ showForm() ? 'Cancel' : '+ Add Family Member' }}
+    </button>
+  </div>
+
+  @if (errorMessage(); as error) {
+    <div class="error-message">{{ error }}</div>
+  }
+
+  @if (successMessage(); as success) {
+    <div class="success-message">{{ success }}</div>
+  }
+
+  @if (showForm()) {
+    <div class="form-card">
+      <h2>Add Family Member</h2>
+      <p class="form-description">Enter the email address of the user you want to add as a family member.</p>
+      <form [formGroup]="familyForm" (ngSubmit)="onSubmit()">
+        <div class="form-group">
+          <label for="email">Email Address *</label>
+          <input
+            type="email"
+            id="email"
+            formControlName="email"
+            placeholder="user@example.com"
+            class="form-input"
+          />
+          @if (familyForm.get('email')?.invalid && familyForm.get('email')?.touched) {
+            <span class="error-text">
+              @if (familyForm.get('email')?.errors?.['required']) {
+                Email is required
+              } @else if (familyForm.get('email')?.errors?.['email']) {
+                Please enter a valid email address
+              }
+            </span>
+          }
+        </div>
+
+        <div class="form-actions">
+          <button type="submit" class="submit-button" [disabled]="isLoading() || familyForm.invalid">
+            {{ isLoading() ? 'Sending...' : 'Send Request' }}
+          </button>
+        </div>
+      </form>
+    </div>
+  }
+
+  @if (pendingRequests().length > 0) {
+    <div class="section">
+      <h2>Pending Requests</h2>
+      <div class="requests-list">
+        @for (request of pendingRequests(); track request.id) {
+          <div class="request-card">
+            <div class="request-info">
+              <h3>{{ getRequesterName(request) }}</h3>
+              <p class="request-meta">Requested on {{ request.created_at | date:'medium' }}</p>
+            </div>
+            <div class="request-actions">
+              <button class="accept-button" (click)="acceptRequest(request.id)">Accept</button>
+              <button class="reject-button" (click)="rejectRequest(request.id)">Reject</button>
+            </div>
+          </div>
+        }
+      </div>
+    </div>
+  }
+
+  @if (isLoading() && families().length === 0 && pendingRequests().length === 0) {
+    <div class="loading">Loading families...</div>
+  }
+
+  @if (!isLoading() && families().length === 0 && pendingRequests().length === 0 && !showForm()) {
+    <div class="empty-state">
+      <p>No family members yet. Click "Add Family Member" to get started!</p>
+    </div>
+  }
+
+  @if (families().length > 0) {
+    <div class="section">
+      <h2>Family Members</h2>
+      <div class="families-grid">
+        @for (family of families(); track family.id) {
+          <div class="family-card">
+            <div class="family-avatar">
+              {{ getFamilyMemberName(family).charAt(0).toUpperCase() }}
+            </div>
+            <div class="family-info">
+              <h3>{{ getFamilyMemberName(family) }}</h3>
+              <p class="family-meta">Family since {{ family.updated_at | date:'medium' }}</p>
+            </div>
+          </div>
+        }
+      </div>
+    </div>
+  }
+</div>
+
