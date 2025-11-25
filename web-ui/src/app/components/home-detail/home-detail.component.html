@@ -37,6 +37,12 @@
         (click)="setTab('inventory')">
         📦 Inventory
       </button>
+      <button 
+        class="tab-button" 
+        [class.active]="activeTab() === 'finances'"
+        (click)="setTab('finances')">
+        💰 Income & Expenses
+      </button>
     </div>
 
     <div class="tab-content">
@@ -45,6 +51,9 @@
       }
       @if (activeTab() === 'inventory') {
         <app-home-items [homeId]="currentHome.id"></app-home-items>
+      }
+      @if (activeTab() === 'finances') {
+        <app-finances [homeId]="currentHome.id" [isOwner]="isOwner()"></app-finances>
       }
     </div>
   }

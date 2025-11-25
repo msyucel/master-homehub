@@ -8,6 +8,10 @@ require('dotenv').config();
 const { authenticateToken, JWT_SECRET } = require('./middleware/auth');
 const { hashPassword, comparePassword, generateUsername } = require('./utils/auth');
 
+// Amount obfuscation constant - multiply before storing, divide when reading
+// Using prime number 1009 for obfuscation
+const AMOUNT_OBFUSCATION_FACTOR = 1009;
+
 const app = express();
 const PORT = process.env.PORT || 3001;
 
@@ -176,6 +180,105 @@ async function initializeDatabase() {
         FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE CASCADE
       )
     `);
+
+    // Create home_finances table (income & expenses)
+    // Note: amount is stored as DECIMAL but obfuscated (multiplied by AMOUNT_OBFUSCATION_FACTOR)
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS home_finances (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        home_id INT NOT NULL,
+        type ENUM('income', 'expense') NOT NULL,
+        category VARCHAR(100) NOT NULL,
+        amount DECIMAL(15, 2) NOT NULL,
+        description TEXT,
+        transaction_date DATE NOT NULL,
+        is_recurring BOOLEAN DEFAULT FALSE,
+        created_by INT NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        FOREIGN KEY (home_id) REFERENCES homes(id) ON DELETE CASCADE,
+        FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE CASCADE
+      )
+    `);
+
+    // Migrate existing amount column from DECIMAL to TEXT if needed
+    try {
+      const [columns] = await pool.query(`
+        SELECT DATA_TYPE 
+        FROM INFORMATION_SCHEMA.COLUMNS 
+        WHERE TABLE_SCHEMA = DATABASE() 
+        AND TABLE_NAME = 'home_finances' 
+        AND COLUMN_NAME = 'amount'
+      `);
+      
+      if (columns.length > 0 && columns[0].DATA_TYPE === 'text') {
+        console.log('Migrating amount column from TEXT to DECIMAL for obfuscation...');
+        // For existing encrypted values, we'll need to handle them
+        // For now, set default to 0 and let users re-enter if needed
+        await pool.query(`
+          ALTER TABLE home_finances 
+          MODIFY COLUMN amount DECIMAL(15, 2) NOT NULL DEFAULT 0
+        `);
+        console.log('Amount column migrated successfully');
+      }
+    } catch (error) {
+      // Column might not exist yet or already migrated, ignore error
+      console.log('Amount column migration check:', error.message);
+    }
+
+    // Create home_finance_visibility table (controls which members can see each finance entry)
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS home_finance_visibility (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        finance_id INT NOT NULL,
+        user_id INT NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (finance_id) REFERENCES home_finances(id) ON DELETE CASCADE,
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+        UNIQUE KEY unique_finance_user (finance_id, user_id)
+      )
+    `);
+
+    // Add due_date and payment_months columns to home_finances table if they don't exist
+    try {
+      const [dueDateColumn] = await pool.query(`
+        SELECT COLUMN_NAME 
+        FROM INFORMATION_SCHEMA.COLUMNS 
+        WHERE TABLE_SCHEMA = DATABASE() 
+        AND TABLE_NAME = 'home_finances' 
+        AND COLUMN_NAME = 'due_date'
+      `);
+      
+      if (dueDateColumn.length === 0) {
+        await pool.query(`
+          ALTER TABLE home_finances 
+          ADD COLUMN due_date DATE NULL
+        `);
+        console.log('Added due_date column to home_finances table');
+      }
+    } catch (error) {
+      console.log('Due date column migration check:', error.message);
+    }
+
+    try {
+      const [paymentMonthsColumn] = await pool.query(`
+        SELECT COLUMN_NAME 
+        FROM INFORMATION_SCHEMA.COLUMNS 
+        WHERE TABLE_SCHEMA = DATABASE() 
+        AND TABLE_NAME = 'home_finances' 
+        AND COLUMN_NAME = 'payment_months'
+      `);
+      
+      if (paymentMonthsColumn.length === 0) {
+        await pool.query(`
+          ALTER TABLE home_finances 
+          ADD COLUMN payment_months INT NULL
+        `);
+        console.log('Added payment_months column to home_finances table');
+      }
+    } catch (error) {
+      console.log('Payment months column migration check:', error.message);
+    }
 
     console.log('Database initialized successfully');
   } catch (error) {
@@ -465,15 +568,29 @@ app.get('/api/homes/:id/members', authenticateToken, async (req, res) => {
       return res.status(404).json({ error: 'Home not found or access denied' });
     }
 
+    // Get members (accepted home members)
     const [members] = await pool.query(
-      `SELECT hm.*, u.username, u.first_name, u.last_name, u.email
+      `SELECT hm.*, u.username, u.first_name, u.last_name, u.email, 'member' as role
        FROM home_members hm
        JOIN users u ON hm.user_id = u.id
-       WHERE hm.home_id = ?
+       WHERE hm.home_id = ? AND hm.status = 'accepted'
        ORDER BY hm.created_at DESC`,
       [req.params.id]
     );
-    res.json(members);
+
+    // Get owner information
+    const [owner] = await pool.query(
+      `SELECT u.id as user_id, u.username, u.first_name, u.last_name, u.email, 'owner' as role
+       FROM homes h
+       JOIN users u ON h.user_id = u.id
+       WHERE h.id = ?`,
+      [req.params.id]
+    );
+
+    // Combine owner and members, with owner first
+    const allMembers = owner.length > 0 ? [owner[0], ...members] : members;
+
+    res.json(allMembers);
   } catch (error) {
     console.error('Error fetching home members:', error);
     res.status(500).json({ error: 'Failed to fetch home members' });
@@ -814,18 +931,30 @@ app.get('/api/homes/:id', authenticateToken, async (req, res) => {
 
     const home = homeCheck[0];
 
-    // Get members
+    // Get members (accepted home members)
     const [members] = await pool.query(
-      `SELECT hm.*, u.username, u.first_name, u.last_name, u.email
+      `SELECT hm.*, u.username, u.first_name, u.last_name, u.email, 'member' as role
        FROM home_members hm
        JOIN users u ON hm.user_id = u.id
        WHERE hm.home_id = ? AND hm.status = 'accepted'`,
       [homeId]
     );
 
+    // Get owner information
+    const [owner] = await pool.query(
+      `SELECT u.id as user_id, u.username, u.first_name, u.last_name, u.email, 'owner' as role
+       FROM homes h
+       JOIN users u ON h.user_id = u.id
+       WHERE h.id = ?`,
+      [homeId]
+    );
+
+    // Combine owner and members, with owner first
+    const allMembers = owner.length > 0 ? [owner[0], ...members] : members;
+
     res.json({
       ...home,
-      members: members
+      members: allMembers
     });
   } catch (error) {
     console.error('Error fetching home details:', error);
@@ -1273,6 +1402,534 @@ app.delete('/api/homes/:id/items/:itemId', authenticateToken, async (req, res) =
   }
 });
 
+// Home Finances (Income & Expenses) Routes
+
+// Get all finances for a home
+app.get('/api/homes/:id/finances', authenticateToken, async (req, res) => {
+  try {
+    const homeId = req.params.id;
+    const { type, month, year } = req.query;
+
+    // Check access
+    await checkHomeAccess(homeId, req.user.userId);
+
+    // Get finances that are visible to the current user (either created by them, or in visibility table)
+    // Include recurring finances for the selected month/year
+    let query = `SELECT DISTINCT hf.*, u.username as created_by_username
+                 FROM home_finances hf
+                 LEFT JOIN users u ON hf.created_by = u.id
+                 LEFT JOIN home_finance_visibility hfv ON hf.id = hfv.finance_id AND hfv.user_id = ?
+                 WHERE hf.home_id = ? 
+                 AND (hf.created_by = ? OR hfv.user_id = ?)`;
+    const params = [req.user.userId, homeId, req.user.userId, req.user.userId];
+
+    if (type) {
+      query += ' AND hf.type = ?';
+      params.push(type);
+    }
+
+    if (month && year) {
+      // Include:
+      // - transactions in the selected month
+      // - recurring entries (every month)
+      // - payment plans (payment_months)
+      // - due-date ranges (transaction_date..due_date)
+      query += ` AND (
+        (MONTH(hf.transaction_date) = ? AND YEAR(hf.transaction_date) = ?) 
+        OR 
+        (hf.is_recurring = 1)
+        OR
+        (hf.payment_months IS NOT NULL AND hf.payment_months > 1)
+        OR
+        (
+          hf.due_date IS NOT NULL 
+          AND DATE_FORMAT(IFNULL(NULLIF(hf.due_date, '0000-00-00'), hf.transaction_date), '%Y-%m-01') >= ?
+          AND DATE_FORMAT(hf.transaction_date, '%Y-%m-01') <= ?
+        )
+      )`;
+      const paddedMonth = month.toString().padStart(2, '0');
+      const targetMonthStr = `${year}-${paddedMonth}-01`;
+      params.push(month, year, targetMonthStr, targetMonthStr);
+    }
+
+    query += ' ORDER BY hf.transaction_date DESC, hf.created_at DESC';
+
+    const [finances] = await pool.query(query, params);
+
+    // Get visibility info for each finance and deobfuscate amounts
+    // For recurring finances, we need to show them for the selected month/year
+    const processedFinances = [];
+    for (let finance of finances) {
+      // Deobfuscate the amount (divide by obfuscation factor)
+      try {
+        const obfuscatedAmount = parseFloat(finance.amount);
+        finance.amount = obfuscatedAmount / AMOUNT_OBFUSCATION_FACTOR;
+      } catch (error) {
+        console.error(`Error deobfuscating amount for finance ${finance.id}:`, error);
+        finance.amount = 0; // Fallback to 0 if deobfuscation fails
+      }
+      
+      const [visibility] = await pool.query(
+        'SELECT user_id FROM home_finance_visibility WHERE finance_id = ?',
+        [finance.id]
+      );
+      finance.visible_to_user_ids = visibility.map(v => v.user_id);
+
+      // If recurring and month/year is specified, update transaction_date to show in selected month
+      if (finance.is_recurring && month && year) {
+        const originalDate = new Date(finance.transaction_date);
+        const displayDate = new Date(parseInt(year), parseInt(month) - 1, originalDate.getDate());
+        finance.transaction_date = displayDate.toISOString().split('T')[0];
+        finance.is_recurring_display = true; // Flag to indicate this is a recurring entry shown for this month
+      }
+
+      processedFinances.push(finance);
+    }
+
+    res.json(processedFinances);
+  } catch (error) {
+    if (error.status) {
+      return res.status(error.status).json({ error: error.message });
+    }
+    console.error('Error fetching finances:', error);
+    res.status(500).json({ error: 'Failed to fetch finances' });
+  }
+});
+
+// Get monthly balance summary
+app.get('/api/homes/:id/finances/balance', authenticateToken, async (req, res) => {
+  try {
+    const homeId = req.params.id;
+    const { month, year } = req.query;
+
+    if (!month || !year) {
+      return res.status(400).json({ error: 'Month and year are required' });
+    }
+
+    // Check access
+    await checkHomeAccess(homeId, req.user.userId);
+
+    const paddedMonth = month.toString().padStart(2, '0');
+    const targetMonthStr = `${year}-${paddedMonth}-01`;
+
+    // Get all finances visible to the current user (we need to decrypt amounts)
+    // Include recurring finances, payment plans, and due date ranges for the selected month/year
+    const [incomeRecords] = await pool.query(
+      `SELECT hf.amount, hf.transaction_date, hf.payment_months, hf.is_recurring, hf.due_date
+       FROM home_finances hf
+       LEFT JOIN home_finance_visibility hfv ON hf.id = hfv.finance_id AND hfv.user_id = ?
+       WHERE hf.home_id = ? 
+       AND hf.type = 'income' 
+       AND (
+         (MONTH(hf.transaction_date) = ? AND YEAR(hf.transaction_date) = ?) 
+         OR 
+         (hf.is_recurring = 1)
+         OR
+         (hf.payment_months IS NOT NULL AND hf.payment_months > 1)
+         OR
+         (
+           hf.due_date IS NOT NULL 
+           AND DATE_FORMAT(IFNULL(NULLIF(hf.due_date, '0000-00-00'), hf.transaction_date), '%Y-%m-01') >= ?
+           AND DATE_FORMAT(hf.transaction_date, '%Y-%m-01') <= ?
+         )
+       )
+       AND (hf.created_by = ? OR hfv.user_id = ?)`,
+      [req.user.userId, homeId, month, year, targetMonthStr, targetMonthStr, req.user.userId, req.user.userId]
+    );
+
+    const [expenseRecords] = await pool.query(
+      `SELECT hf.amount, hf.transaction_date, hf.payment_months, hf.is_recurring, hf.due_date
+       FROM home_finances hf
+       LEFT JOIN home_finance_visibility hfv ON hf.id = hfv.finance_id AND hfv.user_id = ?
+       WHERE hf.home_id = ? 
+       AND hf.type = 'expense' 
+       AND (
+         (MONTH(hf.transaction_date) = ? AND YEAR(hf.transaction_date) = ?) 
+         OR 
+         (hf.is_recurring = 1)
+         OR
+         (hf.payment_months IS NOT NULL AND hf.payment_months > 1)
+         OR
+         (
+           hf.due_date IS NOT NULL 
+           AND DATE_FORMAT(IFNULL(NULLIF(hf.due_date, '0000-00-00'), hf.transaction_date), '%Y-%m-01') >= ?
+           AND DATE_FORMAT(hf.transaction_date, '%Y-%m-01') <= ?
+         )
+       )
+       AND (hf.created_by = ? OR hfv.user_id = ?)`,
+      [req.user.userId, homeId, month, year, targetMonthStr, targetMonthStr, req.user.userId, req.user.userId]
+    );
+
+    // Helpers for month-based calculations
+    const selectedMonthIndex = parseInt(year) * 12 + (parseInt(month) - 1);
+
+    const parseDateParts = (dateValue) => {
+      if (!dateValue) return null;
+      
+      // Handle both Date objects and strings
+      let dateString;
+      if (dateValue instanceof Date) {
+        dateString = dateValue.toISOString();
+      } else if (typeof dateValue === 'string') {
+        dateString = dateValue;
+      } else {
+        return null;
+      }
+      
+      const [datePart] = dateString.split('T');
+      const [y, m] = datePart.split('-');
+      const yearNum = parseInt(y, 10);
+      const monthNum = parseInt(m, 10);
+      if (isNaN(yearNum) || isNaN(monthNum)) {
+        return null;
+      }
+      return { year: yearNum, month: monthNum };
+    };
+
+    const getMonthIndex = (parts) => parts.year * 12 + (parts.month - 1);
+
+    const calculateMonthlyContribution = (record, decodedAmount) => {
+      const transactionParts = parseDateParts(record.transaction_date);
+      if (!transactionParts) {
+        return 0;
+      }
+      const transactionIndex = getMonthIndex(transactionParts);
+
+      const paymentMonths = record.payment_months ? parseInt(record.payment_months, 10) : 0;
+      if (paymentMonths && paymentMonths > 1) {
+        const monthsDiff = selectedMonthIndex - transactionIndex;
+        if (monthsDiff >= 0 && monthsDiff < paymentMonths) {
+          return decodedAmount / paymentMonths;
+        }
+        return 0;
+      }
+
+      const dueParts = parseDateParts(record.due_date);
+      if (dueParts) {
+        const dueIndex = getMonthIndex(dueParts);
+        if (selectedMonthIndex >= transactionIndex && selectedMonthIndex <= dueIndex) {
+          return decodedAmount;
+        }
+      }
+
+      if (record.is_recurring) {
+        return decodedAmount;
+      }
+
+      return selectedMonthIndex === transactionIndex ? decodedAmount : 0;
+    };
+
+    // Deobfuscate and sum amounts
+    let totalIncome = 0;
+    for (const record of incomeRecords) {
+      try {
+        const obfuscatedAmount = parseFloat(record.amount);
+        const decodedAmount = obfuscatedAmount / AMOUNT_OBFUSCATION_FACTOR;
+        totalIncome += calculateMonthlyContribution(record, decodedAmount);
+      } catch (error) {
+        console.error('Error deobfuscating income amount:', error);
+      }
+    }
+
+    let totalExpenses = 0;
+    for (const record of expenseRecords) {
+      try {
+        const obfuscatedAmount = parseFloat(record.amount);
+        const decodedAmount = obfuscatedAmount / AMOUNT_OBFUSCATION_FACTOR;
+        totalExpenses += calculateMonthlyContribution(record, decodedAmount);
+      } catch (error) {
+        console.error('Error deobfuscating expense amount:', error);
+      }
+    }
+
+    const balance = totalIncome - totalExpenses;
+
+    res.json({
+      month: parseInt(month),
+      year: parseInt(year),
+      total_income: totalIncome,
+      total_expenses: totalExpenses,
+      balance: balance
+    });
+  } catch (error) {
+    if (error.status) {
+      return res.status(error.status).json({ error: error.message });
+    }
+    console.error('Error fetching balance:', error);
+    res.status(500).json({ error: 'Failed to fetch balance' });
+  }
+});
+
+// Create finance entry
+app.post('/api/homes/:id/finances', authenticateToken, async (req, res) => {
+  try {
+    const homeId = req.params.id;
+    const { type, category, amount, description, transaction_date, is_recurring, visible_to_user_ids, due_date, payment_months } = req.body;
+
+    if (!type || !category || !amount || !transaction_date) {
+      return res.status(400).json({ error: 'Type, category, amount, and transaction_date are required' });
+    }
+
+    if (!['income', 'expense'].includes(type)) {
+      return res.status(400).json({ error: 'Type must be income or expense' });
+    }
+
+    // Check access
+    await checkHomeAccess(homeId, req.user.userId);
+
+    // Only home owner can create finance entries
+    await checkHomeOwner(homeId, req.user.userId);
+
+    // Verify that all visible_to_user_ids are home members
+    if (visible_to_user_ids && Array.isArray(visible_to_user_ids) && visible_to_user_ids.length > 0) {
+      const [members] = await pool.query(
+        `SELECT user_id FROM home_members WHERE home_id = ? AND user_id IN (?) AND status = 'accepted'
+         UNION
+         SELECT user_id FROM homes WHERE id = ? AND user_id IN (?)`,
+        [homeId, visible_to_user_ids, homeId, visible_to_user_ids]
+      );
+      const validUserIds = members.map(m => m.user_id);
+      const invalidIds = visible_to_user_ids.filter(id => !validUserIds.includes(id));
+      if (invalidIds.length > 0) {
+        return res.status(400).json({ error: 'Some selected users are not home members' });
+      }
+    }
+
+    // Validate payment_months if provided (should be positive integer)
+    if (payment_months !== undefined && payment_months !== null) {
+      const months = parseInt(payment_months);
+      if (isNaN(months) || months < 1) {
+        return res.status(400).json({ error: 'Payment months must be a positive integer' });
+      }
+    }
+
+    // Obfuscate the amount before storing (multiply by obfuscation factor)
+    const obfuscatedAmount = parseFloat(amount) * AMOUNT_OBFUSCATION_FACTOR;
+
+    const [result] = await pool.query(
+      'INSERT INTO home_finances (home_id, type, category, amount, description, transaction_date, is_recurring, created_by, due_date, payment_months) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      [homeId, type, category, obfuscatedAmount, description || null, transaction_date, is_recurring || false, req.user.userId, due_date || null, payment_months ? parseInt(payment_months) : null]
+    );
+
+    const financeId = result.insertId;
+
+    // Create visibility entries
+    if (visible_to_user_ids && Array.isArray(visible_to_user_ids) && visible_to_user_ids.length > 0) {
+      for (const userId of visible_to_user_ids) {
+        await pool.query(
+          'INSERT INTO home_finance_visibility (finance_id, user_id) VALUES (?, ?)',
+          [financeId, userId]
+        );
+      }
+    }
+
+    const [rows] = await pool.query('SELECT hf.*, u.username as created_by_username FROM home_finances hf LEFT JOIN users u ON hf.created_by = u.id WHERE hf.id = ?', [financeId]);
+    const finance = rows[0];
+
+    // Deobfuscate the amount for response (divide by obfuscation factor)
+    try {
+      const obfuscatedAmount = parseFloat(finance.amount);
+      finance.amount = obfuscatedAmount / AMOUNT_OBFUSCATION_FACTOR;
+    } catch (error) {
+      console.error('Error deobfuscating amount:', error);
+      finance.amount = parseFloat(amount); // Fallback to original amount
+    }
+
+    // Get visibility info
+    const [visibility] = await pool.query(
+      'SELECT user_id FROM home_finance_visibility WHERE finance_id = ?',
+      [financeId]
+    );
+    finance.visible_to_user_ids = visibility.map(v => v.user_id);
+
+    res.status(201).json(finance);
+  } catch (error) {
+    if (error.status) {
+      return res.status(error.status).json({ error: error.message });
+    }
+    console.error('Error creating finance entry:', error);
+    res.status(500).json({ error: 'Failed to create finance entry' });
+  }
+});
+
+// Update finance entry
+app.put('/api/homes/:id/finances/:financeId', authenticateToken, async (req, res) => {
+  try {
+    const homeId = req.params.id;
+    const financeId = req.params.financeId;
+    const { type, category, amount, description, transaction_date, is_recurring, visible_to_user_ids, due_date, payment_months } = req.body;
+
+    // Check access
+    await checkHomeAccess(homeId, req.user.userId);
+
+    // Only home owner can update finance entries
+    await checkHomeOwner(homeId, req.user.userId);
+
+    // Verify that the finance entry exists
+    const [existing] = await pool.query(
+      'SELECT created_by FROM home_finances WHERE id = ? AND home_id = ?',
+      [financeId, homeId]
+    );
+    if (existing.length === 0) {
+      return res.status(404).json({ error: 'Finance entry not found' });
+    }
+
+    // Validate payment_months if provided (should be positive integer)
+    if (payment_months !== undefined && payment_months !== null) {
+      const months = parseInt(payment_months);
+      if (isNaN(months) || months < 1) {
+        return res.status(400).json({ error: 'Payment months must be a positive integer' });
+      }
+    }
+
+    const updates = [];
+    const values = [];
+
+    if (type !== undefined) {
+      if (!['income', 'expense'].includes(type)) {
+        return res.status(400).json({ error: 'Invalid type' });
+      }
+      updates.push('type = ?');
+      values.push(type);
+    }
+    if (category !== undefined) {
+      updates.push('category = ?');
+      values.push(category);
+    }
+    if (amount !== undefined) {
+      // Obfuscate the amount before updating (multiply by obfuscation factor)
+      const obfuscatedAmount = parseFloat(amount) * AMOUNT_OBFUSCATION_FACTOR;
+      updates.push('amount = ?');
+      values.push(obfuscatedAmount);
+    }
+    if (description !== undefined) {
+      updates.push('description = ?');
+      values.push(description);
+    }
+    if (transaction_date !== undefined) {
+      updates.push('transaction_date = ?');
+      values.push(transaction_date);
+    }
+    if (is_recurring !== undefined) {
+      updates.push('is_recurring = ?');
+      values.push(is_recurring);
+    }
+    if (due_date !== undefined) {
+      updates.push('due_date = ?');
+      values.push(due_date || null);
+    }
+    if (payment_months !== undefined) {
+      updates.push('payment_months = ?');
+      values.push(payment_months ? parseInt(payment_months) : null);
+    }
+
+    if (updates.length > 0) {
+      values.push(financeId, homeId);
+      const query = `UPDATE home_finances SET ${updates.join(', ')} WHERE id = ? AND home_id = ?`;
+      await pool.query(query, values);
+    }
+
+    // Update visibility if provided
+    if (visible_to_user_ids !== undefined) {
+      // Verify that all visible_to_user_ids are home members
+      if (Array.isArray(visible_to_user_ids) && visible_to_user_ids.length > 0) {
+        const [members] = await pool.query(
+          `SELECT user_id FROM home_members WHERE home_id = ? AND user_id IN (?) AND status = 'accepted'
+           UNION
+           SELECT user_id FROM homes WHERE id = ? AND user_id IN (?)`,
+          [homeId, visible_to_user_ids, homeId, visible_to_user_ids]
+        );
+        const validUserIds = members.map(m => m.user_id);
+        const invalidIds = visible_to_user_ids.filter(id => !validUserIds.includes(id));
+        if (invalidIds.length > 0) {
+          return res.status(400).json({ error: 'Some selected users are not home members' });
+        }
+      }
+
+      // Delete existing visibility entries
+      await pool.query('DELETE FROM home_finance_visibility WHERE finance_id = ?', [financeId]);
+
+      // Create new visibility entries
+      if (Array.isArray(visible_to_user_ids) && visible_to_user_ids.length > 0) {
+        for (const userId of visible_to_user_ids) {
+          await pool.query(
+            'INSERT INTO home_finance_visibility (finance_id, user_id) VALUES (?, ?)',
+            [financeId, userId]
+          );
+        }
+      }
+    }
+
+    const [rows] = await pool.query(
+      'SELECT hf.*, u.username as created_by_username FROM home_finances hf LEFT JOIN users u ON hf.created_by = u.id WHERE hf.id = ? AND hf.home_id = ?',
+      [financeId, homeId]
+    );
+    if (rows.length === 0) {
+      return res.status(404).json({ error: 'Finance entry not found' });
+    }
+
+    const finance = rows[0];
+
+    // Deobfuscate the amount for response (divide by obfuscation factor)
+    try {
+      const obfuscatedAmount = parseFloat(finance.amount);
+      finance.amount = obfuscatedAmount / AMOUNT_OBFUSCATION_FACTOR;
+    } catch (error) {
+      console.error('Error deobfuscating amount:', error);
+      // If amount was provided in update, use that, otherwise keep obfuscated value
+      if (amount !== undefined) {
+        finance.amount = parseFloat(amount);
+      }
+    }
+
+    // Get visibility info
+    const [visibility] = await pool.query(
+      'SELECT user_id FROM home_finance_visibility WHERE finance_id = ?',
+      [financeId]
+    );
+    finance.visible_to_user_ids = visibility.map(v => v.user_id);
+
+    res.json(finance);
+  } catch (error) {
+    if (error.status) {
+      return res.status(error.status).json({ error: error.message });
+    }
+    console.error('Error updating finance entry:', error);
+    res.status(500).json({ error: 'Failed to update finance entry' });
+  }
+});
+
+// Delete finance entry
+app.delete('/api/homes/:id/finances/:financeId', authenticateToken, async (req, res) => {
+  try {
+    const homeId = req.params.id;
+    const financeId = req.params.financeId;
+
+    // Check access
+    await checkHomeAccess(homeId, req.user.userId);
+
+    // Only home owner can delete finance entries
+    await checkHomeOwner(homeId, req.user.userId);
+
+    const [result] = await pool.query(
+      'DELETE FROM home_finances WHERE id = ? AND home_id = ?',
+      [financeId, homeId]
+    );
+
+    if (result.affectedRows === 0) {
+      return res.status(404).json({ error: 'Finance entry not found' });
+    }
+
+    res.json({ message: 'Finance entry deleted successfully' });
+  } catch (error) {
+    if (error.status) {
+      return res.status(error.status).json({ error: error.message });
+    }
+    console.error('Error deleting finance entry:', error);
+    res.status(500).json({ error: 'Failed to delete finance entry' });
+  }
+});
+
 // Helper function to check home access
 async function checkHomeAccess(homeId, userId) {
   const [access] = await pool.query(
@@ -1285,6 +1942,20 @@ async function checkHomeAccess(homeId, userId) {
 
   if (access.length === 0) {
     const error = new Error('Access denied');
+    error.status = 403;
+    throw error;
+  }
+}
+
+// Helper function to check if user is owner of a home
+async function checkHomeOwner(homeId, userId) {
+  const [owner] = await pool.query(
+    'SELECT id FROM homes WHERE id = ? AND user_id = ?',
+    [homeId, userId]
+  );
+
+  if (owner.length === 0) {
+    const error = new Error('Only home owner can perform this action');
     error.status = 403;
     throw error;
   }

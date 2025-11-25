@@ -29,7 +29,7 @@
 
   @if (showForm()) {
     <div class="form-card">
-      <h3>Add New Item</h3>
+      <h3>{{ editingItem() ? 'Edit Item' : 'Add New Item' }}</h3>
       <form [formGroup]="itemForm" (ngSubmit)="onSubmit()">
         <div class="form-group">
           <label for="name">Item Name *</label>
@@ -99,8 +99,9 @@
         </div>
 
         <div class="form-actions">
+          <button type="button" class="cancel-button" (click)="cancelEdit()">Cancel</button>
           <button type="submit" class="submit-button" [disabled]="isLoading() || itemForm.invalid">
-            {{ isLoading() ? 'Adding...' : 'Add Item' }}
+            {{ isLoading() ? (editingItem() ? 'Updating...' : 'Adding...') : (editingItem() ? 'Update Item' : 'Add Item') }}
           </button>
         </div>
       </form>
@@ -126,9 +127,14 @@
             <h4>{{ item.name }}</h4>
             <span class="item-category">{{ getCategoryLabel(item.category) }}</span>
           </div>
-          <button class="delete-button" (click)="deleteItem(item)" title="Delete item">
-            🗑️
-          </button>
+          <div class="item-actions">
+            <button class="edit-button" (click)="editItem(item); $event.stopPropagation()" title="Edit item">
+              ✏️
+            </button>
+            <button class="delete-button" (click)="deleteItem(item); $event.stopPropagation()" title="Delete item">
+              🗑️
+            </button>
+          </div>
         </div>
         <div class="item-details">
           @if (item.quantity) {

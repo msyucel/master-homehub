@@ -1,0 +1,212 @@
+<div class="finances-container">
+  <div class="finances-header">
+    <h2>Income & Expenses</h2>
+    @if (isOwner) {
+      <button class="add-button" (click)="toggleForm()">
+        {{ showForm() ? 'Cancel' : '+ Add Entry' }}
+      </button>
+    }
+  </div>
+
+  @if (errorMessage(); as error) {
+    <div class="error-message">{{ error }}</div>
+  }
+
+  <!-- Balance Summary -->
+  @if (balance(); as balanceData) {
+    <div class="balance-summary">
+      <div class="balance-header">
+        <h3>Monthly Balance - {{ getMonthName(currentMonth()) }} {{ currentYear() }}</h3>
+        <div class="month-navigation">
+          <button class="nav-button" (click)="changeMonth('prev')">←</button>
+          <span class="month-year">{{ getMonthName(currentMonth()) }} {{ currentYear() }}</span>
+          <button class="nav-button" (click)="changeMonth('next')">→</button>
+        </div>
+      </div>
+      <div class="balance-cards">
+        <div class="balance-card income">
+          <div class="balance-label">Total Income</div>
+          <div class="balance-amount">{{ balanceData.total_income | formatCurrency }}</div>
+        </div>
+        <div class="balance-card expense">
+          <div class="balance-label">Total Expenses</div>
+          <div class="balance-amount">{{ balanceData.total_expenses | formatCurrency }}</div>
+        </div>
+        <div class="balance-card balance" [class.positive]="balanceData.balance >= 0" [class.negative]="balanceData.balance < 0">
+          <div class="balance-label">Balance</div>
+          <div class="balance-amount">{{ balanceData.balance | formatCurrency }}</div>
+        </div>
+      </div>
+    </div>
+  }
+
+  <!-- Add/Edit Form -->
+  @if (showForm()) {
+    <div class="finance-form-container">
+      <form [formGroup]="financeForm" (ngSubmit)="onSubmit()" class="finance-form">
+        <div class="form-row">
+          <div class="form-group">
+            <label>Type *</label>
+            <select formControlName="type" class="form-control">
+              <option value="income">Income</option>
+              <option value="expense">Expense</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Category *</label>
+            <select formControlName="category" class="form-control">
+              @if (financeForm.get('type')?.value === 'income') {
+                @for (cat of incomeCategories; track cat.value) {
+                  <option [value]="cat.value">{{ cat.label }}</option>
+                }
+              } @else {
+                @for (cat of expenseCategories; track cat.value) {
+                  <option [value]="cat.value">{{ cat.label }}</option>
+                }
+              }
+            </select>
+          </div>
+        </div>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label>Amount *</label>
+            <input type="text" formControlName="amount" class="form-control" placeholder="100.000 veya 100000" (input)="formatAmount($event)">
+          </div>
+          <div class="form-group">
+            <label>Date *</label>
+            <input type="date" formControlName="transaction_date" class="form-control">
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label>Description</label>
+          <textarea formControlName="description" class="form-control" rows="2" placeholder="Optional description"></textarea>
+        </div>
+
+        <div class="form-group checkbox-group">
+          <label>
+            <input type="checkbox" formControlName="is_recurring">
+            Recurring (Monthly)
+          </label>
+        </div>
+
+        @if (financeForm.get('type')?.value === 'expense') {
+          <div class="form-row">
+            <div class="form-group">
+              <label>Due Date (Vade Tarihi)</label>
+              <input type="date" formControlName="due_date" class="form-control">
+              <small class="form-hint">Gider için vade tarihini seçin</small>
+            </div>
+            <div class="form-group">
+              <label>Payment Months (Ödeme Ayı)</label>
+              <input type="number" formControlName="payment_months" class="form-control" placeholder="Örn: 6, 10" min="1">
+              <small class="form-hint">Gideri kaç aya yaymak istediğinizi girin (6 ay, 10 ay vb.)</small>
+            </div>
+          </div>
+        }
+
+        <div class="form-group">
+          <label>Visible To (Select Members)</label>
+          <div class="members-selection">
+            @if (homeMembers().length === 0) {
+              <p class="no-members">No home members available</p>
+            } @else {
+              @for (member of homeMembers(); track member.user_id) {
+                <label class="member-checkbox">
+                  <input 
+                    type="checkbox" 
+                    [value]="member.user_id"
+                    [checked]="financeForm.get('visible_to_user_ids')?.value?.includes(member.user_id)"
+                    (change)="toggleMemberVisibility(member.user_id, $event)">
+                  <span class="member-name">{{ member.username || member.email }}</span>
+                </label>
+              }
+            }
+            <p class="visibility-hint">If no members are selected, only you will see this entry.</p>
+          </div>
+        </div>
+
+        <div class="form-actions">
+          <button type="button" class="cancel-button" (click)="cancelEdit()">Cancel</button>
+          <button type="submit" class="submit-button" [disabled]="financeForm.invalid || isLoading()">
+            {{ editingFinance() ? 'Update' : 'Add' }} Entry
+          </button>
+        </div>
+      </form>
+    </div>
+  }
+
+  <!-- Filter Buttons -->
+  <div class="filter-buttons">
+    <button 
+      class="filter-button" 
+      [class.active]="selectedType() === 'all'"
+      (click)="setType('all')">
+      All
+    </button>
+    <button 
+      class="filter-button" 
+      [class.active]="selectedType() === 'income'"
+      (click)="setType('income')">
+      Income
+    </button>
+    <button 
+      class="filter-button" 
+      [class.active]="selectedType() === 'expense'"
+      (click)="setType('expense')">
+      Expenses
+    </button>
+  </div>
+
+  <!-- Finances List -->
+  @if (isLoading()) {
+    <div class="loading">Loading finances...</div>
+  } @else if (displayedFinances().length === 0) {
+    <div class="empty-state">No finance entries found for this month.</div>
+  } @else {
+    <div class="finances-list">
+      @for (finance of displayedFinances(); track finance.id) {
+        <div class="finance-item" [class.income]="finance.type === 'income'" [class.expense]="finance.type === 'expense'">
+          <div class="finance-main">
+            <div class="finance-icon">
+              {{ finance.type === 'income' ? '💰' : '💸' }}
+            </div>
+            <div class="finance-details">
+              <div class="finance-category">{{ getCategoryLabel(finance.category) }}</div>
+              <div class="finance-amount" [class.income-amount]="finance.type === 'income'" [class.expense-amount]="finance.type === 'expense'">
+                {{ finance.type === 'income' ? '+' : '-' }}{{ finance.amount | formatCurrency }}
+                @if (finance.type === 'expense' && finance.payment_months && finance.payment_months > 1 && finance.payment_month_index) {
+                  <span class="installment-info">({{ finance.payment_month_index }}/{{ finance.payment_months }})</span>
+                }
+              </div>
+              @if (finance.description) {
+                <div class="finance-description">{{ finance.description }}</div>
+              }
+              <div class="finance-meta">
+                <span class="finance-date">{{ finance.transaction_date | date:'MMM d, y' }}</span>
+                @if (finance.is_recurring) {
+                  <span class="recurring-badge">🔄 Recurring</span>
+                }
+                @if (finance.type === 'expense' && finance.due_date) {
+                  <span class="due-date-badge">📅 Due: {{ finance.due_date | date:'MMM d, y' }}</span>
+                }
+                @if (finance.type === 'expense' && finance.payment_months) {
+                  <span class="payment-months-badge">{{ finance.payment_months }} ay</span>
+                }
+                <span class="finance-creator">by {{ finance.created_by_username }}</span>
+              </div>
+            </div>
+          </div>
+          @if (isOwner) {
+            <div class="finance-actions">
+              <button class="edit-button" (click)="editFinance(finance)">Edit</button>
+              <button class="delete-button" (click)="deleteFinance(finance)">Delete</button>
+            </div>
+          }
+        </div>
+      }
+    </div>
+  }
+</div>
+

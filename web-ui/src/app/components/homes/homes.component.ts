@@ -22,6 +22,7 @@ export class HomesComponent implements OnInit {
 
   homes = signal<Home[]>([]);
   families = signal<Family[]>([]);
+  homeMembers = signal<Map<number, any[]>>(new Map()); // homeId -> members[]
   isLoading = signal(false);
   showForm = signal(false);
   showMemberModal = signal(false);
@@ -58,11 +59,43 @@ export class HomesComponent implements OnInit {
     });
   }
 
+  loadHomeMembers(homeId: number): void {
+    this.homesService.getHomeMembers(homeId).subscribe({
+      next: (members) => {
+        const currentMap = this.homeMembers();
+        currentMap.set(homeId, members);
+        this.homeMembers.set(new Map(currentMap));
+      },
+      error: (error) => {
+        console.error('Error loading home members:', error);
+      }
+    });
+  }
+
+  getAvailableFamilies(homeId: number): Family[] {
+    const members = this.homeMembers().get(homeId) || [];
+    const memberIds = members.map((m: any) => m.user_id);
+    const currentUserId = this.authService.getUser()?.id;
+    
+    return this.families().filter(family => {
+      const memberId = this.getFamilyMemberId(family);
+      return !memberIds.includes(memberId) && memberId !== currentUserId;
+    });
+  }
+
+  getHomeMembersList(homeId: number): any[] {
+    return this.homeMembers().get(homeId) || [];
+  }
+
   loadHomes(): void {
     this.isLoading.set(true);
     this.homesService.getHomes().subscribe({
       next: (homes) => {
         this.homes.set(homes);
+        // Load members for each home
+        homes.forEach(home => {
+          this.loadHomeMembers(home.id);
+        });
         this.isLoading.set(false);
       },
       error: (error) => {
@@ -117,6 +150,7 @@ export class HomesComponent implements OnInit {
 
   openMemberModal(homeId: number): void {
     this.selectedHomeId.set(homeId);
+    this.loadHomeMembers(homeId);
     this.showMemberModal.set(true);
     this.memberForm.reset();
     this.errorMessage.set(null);
@@ -141,6 +175,7 @@ export class HomesComponent implements OnInit {
       this.homesService.addHomeMember(this.selectedHomeId()!, userId).subscribe({
         next: () => {
           this.successMessage.set('Member request sent successfully!');
+          this.loadHomeMembers(this.selectedHomeId()!);
           this.isLoading.set(false);
           setTimeout(() => {
             this.closeMemberModal();

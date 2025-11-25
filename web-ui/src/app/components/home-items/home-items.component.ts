@@ -20,6 +20,7 @@ export class HomeItemsComponent implements OnInit {
   filteredItems = signal<HomeItem[]>([]);
   isLoading = signal(false);
   showForm = signal(false);
+  editingItem = signal<HomeItem | null>(null);
   selectedCategory = signal<'all' | 'fridge' | 'pantry' | 'storage'>('all');
   errorMessage = signal<string | null>(null);
   itemForm: FormGroup;
@@ -86,10 +87,29 @@ export class HomeItemsComponent implements OnInit {
 
   toggleForm(): void {
     this.showForm.set(!this.showForm());
+    this.editingItem.set(null);
     if (!this.showForm()) {
       this.itemForm.reset({ category: 'fridge' });
       this.errorMessage.set(null);
     }
+  }
+
+  editItem(item: HomeItem): void {
+    this.editingItem.set(item);
+    this.showForm.set(true);
+    this.itemForm.patchValue({
+      name: item.name,
+      category: item.category,
+      quantity: item.quantity || '',
+      location: item.location || '',
+      expiry_date: item.expiry_date ? item.expiry_date.split('T')[0] : '',
+      notes: item.notes || ''
+    });
+    this.errorMessage.set(null);
+  }
+
+  cancelEdit(): void {
+    this.toggleForm();
   }
 
   onSubmit(): void {
@@ -98,23 +118,41 @@ export class HomeItemsComponent implements OnInit {
       this.errorMessage.set(null);
 
       const formValue = this.itemForm.value;
-      this.homeItemsService.createHomeItem(this.homeId, {
+      const itemData = {
         name: formValue.name,
         category: formValue.category,
         quantity: formValue.quantity || undefined,
         location: formValue.location || undefined,
         expiry_date: formValue.expiry_date || undefined,
         notes: formValue.notes || undefined
-      }).subscribe({
-        next: () => {
-          this.loadItems();
-          this.toggleForm();
-        },
-        error: (error) => {
-          this.errorMessage.set(error.error?.error || 'Failed to create item');
-          this.isLoading.set(false);
-        }
-      });
+      };
+
+      const editingItem = this.editingItem();
+      if (editingItem) {
+        // Update existing item
+        this.homeItemsService.updateHomeItem(this.homeId, editingItem.id, itemData).subscribe({
+          next: () => {
+            this.loadItems();
+            this.toggleForm();
+          },
+          error: (error) => {
+            this.errorMessage.set(error.error?.error || 'Failed to update item');
+            this.isLoading.set(false);
+          }
+        });
+      } else {
+        // Create new item
+        this.homeItemsService.createHomeItem(this.homeId, itemData).subscribe({
+          next: () => {
+            this.loadItems();
+            this.toggleForm();
+          },
+          error: (error) => {
+            this.errorMessage.set(error.error?.error || 'Failed to create item');
+            this.isLoading.set(false);
+          }
+        });
+      }
     }
   }
 

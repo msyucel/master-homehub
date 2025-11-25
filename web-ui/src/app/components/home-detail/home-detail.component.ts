@@ -5,11 +5,12 @@ import { HomesService } from '../../services/homes.service';
 import { AuthService } from '../../services/auth.service';
 import { ShoppingListComponent } from '../shopping-list/shopping-list.component';
 import { HomeItemsComponent } from '../home-items/home-items.component';
+import { FinancesComponent } from '../finances/finances.component';
 
 @Component({
   selector: 'app-home-detail',
   standalone: true,
-  imports: [CommonModule, RouterLink, ShoppingListComponent, HomeItemsComponent],
+  imports: [CommonModule, RouterLink, ShoppingListComponent, HomeItemsComponent, FinancesComponent],
   templateUrl: './home-detail.component.html',
   styleUrl: './home-detail.component.css'
 })
@@ -22,7 +23,7 @@ export class HomeDetailComponent implements OnInit {
   home = signal<any>(null);
   isLoading = signal(false);
   errorMessage = signal<string | null>(null);
-  activeTab = signal<'shopping' | 'inventory'>('shopping');
+  activeTab = signal<'shopping' | 'inventory' | 'finances'>('shopping');
 
   ngOnInit(): void {
     const homeId = this.route.snapshot.paramMap.get('id');
@@ -52,7 +53,7 @@ export class HomeDetailComponent implements OnInit {
     });
   }
 
-  setTab(tab: 'shopping' | 'inventory'): void {
+  setTab(tab: 'shopping' | 'inventory' | 'finances'): void {
     this.activeTab.set(tab);
   }
 

@@ -80,10 +80,31 @@
           </div>
         </div>
         <p class="address">{{ home.address }}</p>
+        <div class="home-members-section">
+          <div class="members-header">
+            <span class="members-label">Members:</span>
+            @if (isOwner(home)) {
+              <span class="owner-badge">Owner</span>
+            } @else {
+              <span class="member-badge">Member</span>
+            }
+          </div>
+          @if (getHomeMembersList(home.id).length > 0) {
+            <div class="members-list">
+              @for (member of getHomeMembersList(home.id); track member.user_id || member.id) {
+                <span class="member-chip" [class.owner-chip]="member.role === 'owner'">
+                  {{ member.first_name }} {{ member.last_name }}
+                  @if (member.role === 'owner') {
+                    <span class="role-indicator">(Owner)</span>
+                  }
+                </span>
+              }
+            </div>
+          } @else {
+            <span class="no-members">No members yet</span>
+          }
+        </div>
         <p class="date">Added: {{ home.created_at | date:'medium' }}</p>
-        @if (!isOwner(home)) {
-          <p class="member-badge">Member</p>
-        }
       </div>
     }
   </div>
@@ -93,47 +114,69 @@
     <div class="modal-overlay" (click)="closeMemberModal()">
       <div class="modal-content" (click)="$event.stopPropagation()">
         <div class="modal-header">
-          <h2>Add Family Member to Home</h2>
+          <h2>Manage Home Members</h2>
           <button class="close-button" (click)="closeMemberModal()">×</button>
         </div>
 
-        @if (errorMessage(); as error) {
-          <div class="error-message">{{ error }}</div>
-        }
+        <div class="modal-body">
+          @if (errorMessage(); as error) {
+            <div class="error-message">{{ error }}</div>
+          }
 
-        @if (successMessage(); as success) {
-          <div class="success-message">{{ success }}</div>
-        }
+          @if (successMessage(); as success) {
+            <div class="success-message">{{ success }}</div>
+          }
+          @if (selectedHomeId(); as homeId) {
+            @if (getHomeMembersList(homeId).length > 0) {
+              <div class="current-members-section">
+                <h3>Current Members</h3>
+                <div class="members-list">
+                  @for (member of getHomeMembersList(homeId); track member.id) {
+                    <div class="member-item">
+                      <div class="member-avatar">
+                        {{ member.first_name?.charAt(0)?.toUpperCase() }}{{ member.last_name?.charAt(0)?.toUpperCase() }}
+                      </div>
+                      <div class="member-info">
+                        <span class="member-name">{{ member.first_name }} {{ member.last_name }}</span>
+                        <span class="member-email">{{ member.email }}</span>
+                      </div>
+                    </div>
+                  }
+                </div>
+              </div>
+            }
 
-        @if (families().length === 0) {
-          <div class="empty-state">
-            <p>No family members available. Add family members first!</p>
-          </div>
-        } @else {
-          <form [formGroup]="memberForm" (ngSubmit)="onAddMember()">
-            <div class="form-group">
-              <label for="userId">Select Family Member *</label>
-              <select id="userId" formControlName="userId" class="form-input">
-                <option value="">Choose a family member...</option>
-                @for (family of families(); track family.id) {
-                  <option [value]="getFamilyMemberId(family)">
-                    {{ getFamilyMemberName(family) }}
-                  </option>
-                }
-              </select>
-              @if (memberForm.get('userId')?.invalid && memberForm.get('userId')?.touched) {
-                <span class="error-text">Please select a family member</span>
-              }
-            </div>
+            @if (getAvailableFamilies(homeId).length === 0) {
+              <div class="empty-state">
+                <p>No available family members to add. All family members are already members of this home.</p>
+              </div>
+            } @else {
+              <form [formGroup]="memberForm" (ngSubmit)="onAddMember()">
+                <div class="form-group">
+                  <label for="userId">Add Family Member *</label>
+                  <select id="userId" formControlName="userId" class="form-input">
+                    <option value="">Choose a family member...</option>
+                    @for (family of getAvailableFamilies(homeId); track family.id) {
+                      <option [value]="getFamilyMemberId(family)">
+                        {{ getFamilyMemberName(family) }}
+                      </option>
+                    }
+                  </select>
+                  @if (memberForm.get('userId')?.invalid && memberForm.get('userId')?.touched) {
+                    <span class="error-text">Please select a family member</span>
+                  }
+                </div>
 
-            <div class="form-actions">
-              <button type="button" class="cancel-button" (click)="closeMemberModal()">Cancel</button>
-              <button type="submit" class="submit-button" [disabled]="isLoading() || memberForm.invalid">
-                {{ isLoading() ? 'Sending...' : 'Send Invitation' }}
-              </button>
-            </div>
-          </form>
-        }
+                <div class="form-actions">
+                  <button type="button" class="cancel-button" (click)="closeMemberModal()">Cancel</button>
+                  <button type="submit" class="submit-button" [disabled]="isLoading() || memberForm.invalid">
+                    {{ isLoading() ? 'Sending...' : 'Send Invitation' }}
+                  </button>
+                </div>
+              </form>
+            }
+          }
+        </div>
       </div>
     </div>
   }
