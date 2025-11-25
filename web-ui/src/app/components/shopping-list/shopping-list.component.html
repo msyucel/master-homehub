@@ -1,0 +1,133 @@
+<div class="shopping-list-container">
+  @if (errorMessage(); as error) {
+    <div class="error-message">{{ error }}</div>
+  }
+
+  @if (successMessage(); as success) {
+    <div class="success-message">{{ success }}</div>
+  }
+
+  @if (!activeList() && !isLoading()) {
+    <div class="empty-state">
+      <p>No active shopping list. Create one to get started!</p>
+      <button class="create-button" (click)="toggleCreateForm()">+ Create Shopping List</button>
+    </div>
+
+    @if (showCreateForm()) {
+      <div class="form-card">
+        <h3>Create New Shopping List</h3>
+        <form [formGroup]="listForm" (ngSubmit)="onCreateList()">
+          <div class="form-group">
+            <label for="listName">List Name *</label>
+            <input
+              type="text"
+              id="listName"
+              formControlName="name"
+              placeholder="e.g., Weekly Shopping, Groceries"
+              class="form-input"
+            />
+            @if (listForm.get('name')?.invalid && listForm.get('name')?.touched) {
+              <span class="error-text">List name is required</span>
+            }
+          </div>
+          <div class="form-actions">
+            <button type="button" class="cancel-button" (click)="toggleCreateForm()">Cancel</button>
+            <button type="submit" class="submit-button" [disabled]="isLoading() || listForm.invalid">
+              {{ isLoading() ? 'Creating...' : 'Create List' }}
+            </button>
+          </div>
+        </form>
+      </div>
+    }
+  }
+
+  @if (activeList(); as list) {
+    <div class="list-header">
+      <div>
+        <h2>{{ list.name }}</h2>
+        <p class="list-meta">Created by {{ list.created_by_username }} on {{ list.created_at | date:'medium' }}</p>
+      </div>
+      <div class="list-actions">
+        <button class="complete-button" (click)="completeList()">✓ Complete List</button>
+      </div>
+    </div>
+
+    <div class="items-section">
+      <div class="section-header">
+        <h3>Items</h3>
+        <button class="add-item-button" (click)="toggleAddItemForm()">
+          {{ showAddItemForm() ? 'Cancel' : '+ Add Item' }}
+        </button>
+      </div>
+
+      @if (showAddItemForm()) {
+        <div class="add-item-form">
+          <form [formGroup]="itemForm" (ngSubmit)="onAddItem()">
+            <div class="form-row">
+              <div class="form-group">
+                <label for="itemName">Item Name *</label>
+                <input
+                  type="text"
+                  id="itemName"
+                  formControlName="name"
+                  placeholder="e.g., Milk, Bread"
+                  class="form-input"
+                />
+              </div>
+              <div class="form-group">
+                <label for="quantity">Quantity</label>
+                <input
+                  type="text"
+                  id="quantity"
+                  formControlName="quantity"
+                  placeholder="e.g., 2L, 1 pack"
+                  class="form-input"
+                />
+              </div>
+            </div>
+            <div class="form-actions">
+              <button type="submit" class="submit-button" [disabled]="isLoading() || itemForm.invalid">
+                {{ isLoading() ? 'Adding...' : 'Add Item' }}
+              </button>
+            </div>
+          </form>
+        </div>
+      }
+
+      @if (list.items && list.items.length === 0) {
+        <div class="empty-items">No items yet. Add items to your shopping list!</div>
+      }
+
+      @if (list.items && list.items.length > 0) {
+        <div class="items-list">
+          @for (item of list.items; track item.id) {
+            <div class="item-card" [class.completed]="item.completed">
+              <div class="item-content">
+                <input
+                  type="checkbox"
+                  [checked]="item.completed"
+                  (change)="toggleItemCompleted(item)"
+                  class="item-checkbox"
+                />
+                <div class="item-info">
+                  <span class="item-name" [class.strikethrough]="item.completed">{{ item.name }}</span>
+                  @if (item.quantity) {
+                    <span class="item-quantity">{{ item.quantity }}</span>
+                  }
+                </div>
+              </div>
+              <button class="delete-item-button" (click)="deleteItem(item)" title="Delete item">
+                🗑️
+              </button>
+            </div>
+          }
+        </div>
+      }
+    </div>
+  }
+
+  @if (isLoading() && !activeList()) {
+    <div class="loading">Loading shopping list...</div>
+  }
+</div>
+

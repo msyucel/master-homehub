@@ -1,0 +1,166 @@
+<div class="home-items-container">
+  @if (errorMessage(); as error) {
+    <div class="error-message">{{ error }}</div>
+  }
+
+  <div class="header-section">
+    <h2>Home Inventory</h2>
+    <button class="add-button" (click)="toggleForm()">
+      {{ showForm() ? 'Cancel' : '+ Add Item' }}
+    </button>
+  </div>
+
+  <div class="category-filters">
+    <button
+      class="filter-button"
+      [class.active]="selectedCategory() === 'all'"
+      (click)="setCategory('all')">
+      All Items
+    </button>
+    @for (category of categories; track category.value) {
+      <button
+        class="filter-button"
+        [class.active]="selectedCategory() === category.value"
+        (click)="setCategory(category.value)">
+        {{ category.label }}
+      </button>
+    }
+  </div>
+
+  @if (showForm()) {
+    <div class="form-card">
+      <h3>Add New Item</h3>
+      <form [formGroup]="itemForm" (ngSubmit)="onSubmit()">
+        <div class="form-group">
+          <label for="name">Item Name *</label>
+          <input
+            type="text"
+            id="name"
+            formControlName="name"
+            placeholder="e.g., Milk, Rice, Screwdriver"
+            class="form-input"
+          />
+          @if (itemForm.get('name')?.invalid && itemForm.get('name')?.touched) {
+            <span class="error-text">Item name is required</span>
+          }
+        </div>
+
+        <div class="form-group">
+          <label for="category">Category *</label>
+          <select id="category" formControlName="category" class="form-input">
+            @for (category of categories; track category.value) {
+              <option [value]="category.value">{{ category.label }}</option>
+            }
+          </select>
+        </div>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label for="quantity">Quantity</label>
+            <input
+              type="text"
+              id="quantity"
+              formControlName="quantity"
+              placeholder="e.g., 2L, 1kg, 5 pieces"
+              class="form-input"
+            />
+          </div>
+          <div class="form-group">
+            <label for="location">Location</label>
+            <input
+              type="text"
+              id="location"
+              formControlName="location"
+              placeholder="e.g., Top shelf, Bottom drawer"
+              class="form-input"
+            />
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label for="expiry_date">Expiry Date</label>
+          <input
+            type="date"
+            id="expiry_date"
+            formControlName="expiry_date"
+            class="form-input"
+          />
+        </div>
+
+        <div class="form-group">
+          <label for="notes">Notes</label>
+          <textarea
+            id="notes"
+            formControlName="notes"
+            placeholder="Additional notes..."
+            class="form-textarea"
+            rows="3"
+          ></textarea>
+        </div>
+
+        <div class="form-actions">
+          <button type="submit" class="submit-button" [disabled]="isLoading() || itemForm.invalid">
+            {{ isLoading() ? 'Adding...' : 'Add Item' }}
+          </button>
+        </div>
+      </form>
+    </div>
+  }
+
+  @if (isLoading() && items().length === 0) {
+    <div class="loading">Loading items...</div>
+  }
+
+  @if (!isLoading() && filteredItems().length === 0 && !showForm()) {
+    <div class="empty-state">
+      <p>No items in {{ selectedCategory() === 'all' ? 'inventory' : getCategoryLabel(selectedCategory()!) }}. Add items to track what's in your home!</p>
+    </div>
+  }
+
+  <div class="items-grid">
+    @for (item of filteredItems(); track item.id) {
+      <div class="item-card">
+        <div class="item-header">
+          <div class="item-icon">{{ getCategoryIcon(item.category) }}</div>
+          <div class="item-info">
+            <h4>{{ item.name }}</h4>
+            <span class="item-category">{{ getCategoryLabel(item.category) }}</span>
+          </div>
+          <button class="delete-button" (click)="deleteItem(item)" title="Delete item">
+            🗑️
+          </button>
+        </div>
+        <div class="item-details">
+          @if (item.quantity) {
+            <div class="detail-row">
+              <span class="detail-label">Quantity:</span>
+              <span class="detail-value">{{ item.quantity }}</span>
+            </div>
+          }
+          @if (item.location) {
+            <div class="detail-row">
+              <span class="detail-label">Location:</span>
+              <span class="detail-value">{{ item.location }}</span>
+            </div>
+          }
+          @if (item.expiry_date) {
+            <div class="detail-row">
+              <span class="detail-label">Expiry:</span>
+              <span class="detail-value">{{ item.expiry_date | date:'shortDate' }}</span>
+            </div>
+          }
+          @if (item.notes) {
+            <div class="detail-row">
+              <span class="detail-label">Notes:</span>
+              <span class="detail-value">{{ item.notes }}</span>
+            </div>
+          }
+        </div>
+        <div class="item-footer">
+          <span class="created-by">Added by {{ item.created_by_username }}</span>
+        </div>
+      </div>
+    }
+  </div>
+</div>
+

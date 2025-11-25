@@ -129,6 +129,54 @@ async function initializeDatabase() {
       // Column might already exist, ignore
     }
 
+    // Create shopping_lists table
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS shopping_lists (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        home_id INT NOT NULL,
+        name VARCHAR(255) NOT NULL,
+        status ENUM('active', 'completed') DEFAULT 'active',
+        created_by INT NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        FOREIGN KEY (home_id) REFERENCES homes(id) ON DELETE CASCADE,
+        FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE CASCADE
+      )
+    `);
+
+    // Create shopping_list_items table
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS shopping_list_items (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        list_id INT NOT NULL,
+        name VARCHAR(255) NOT NULL,
+        quantity VARCHAR(100),
+        completed BOOLEAN DEFAULT FALSE,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        FOREIGN KEY (list_id) REFERENCES shopping_lists(id) ON DELETE CASCADE
+      )
+    `);
+
+    // Create home_items table (inventory)
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS home_items (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        home_id INT NOT NULL,
+        name VARCHAR(255) NOT NULL,
+        category ENUM('fridge', 'pantry', 'storage') NOT NULL,
+        quantity VARCHAR(100),
+        location VARCHAR(255),
+        expiry_date DATE,
+        notes TEXT,
+        created_by INT NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        FOREIGN KEY (home_id) REFERENCES homes(id) ON DELETE CASCADE,
+        FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE CASCADE
+      )
+    `);
+
     console.log('Database initialized successfully');
   } catch (error) {
     console.error('Error initializing database:', error);
@@ -740,6 +788,507 @@ app.put('/api/notifications/:id/read', authenticateToken, async (req, res) => {
     res.status(500).json({ error: 'Failed to mark notification as read' });
   }
 });
+
+// Home Detail Routes
+
+// Get home details (with members check)
+app.get('/api/homes/:id', authenticateToken, async (req, res) => {
+  try {
+    const homeId = req.params.id;
+
+    // Check if user is owner or member
+    const [homeCheck] = await pool.query(
+      `SELECT h.*, 
+        CASE WHEN h.user_id = ? THEN 'owner' 
+             WHEN hm.user_id = ? AND hm.status = 'accepted' THEN 'member' 
+             ELSE 'none' END as user_role
+       FROM homes h
+       LEFT JOIN home_members hm ON h.id = hm.home_id AND hm.user_id = ?
+       WHERE h.id = ? AND (h.user_id = ? OR (hm.user_id = ? AND hm.status = 'accepted'))`,
+      [req.user.userId, req.user.userId, req.user.userId, homeId, req.user.userId, req.user.userId]
+    );
+
+    if (homeCheck.length === 0) {
+      return res.status(404).json({ error: 'Home not found or access denied' });
+    }
+
+    const home = homeCheck[0];
+
+    // Get members
+    const [members] = await pool.query(
+      `SELECT hm.*, u.username, u.first_name, u.last_name, u.email
+       FROM home_members hm
+       JOIN users u ON hm.user_id = u.id
+       WHERE hm.home_id = ? AND hm.status = 'accepted'`,
+      [homeId]
+    );
+
+    res.json({
+      ...home,
+      members: members
+    });
+  } catch (error) {
+    console.error('Error fetching home details:', error);
+    res.status(500).json({ error: 'Failed to fetch home details' });
+  }
+});
+
+// Shopping Lists Routes
+
+// Get all shopping lists for a home
+app.get('/api/homes/:id/shopping-lists', authenticateToken, async (req, res) => {
+  try {
+    const homeId = req.params.id;
+
+    // Check access
+    await checkHomeAccess(homeId, req.user.userId);
+
+    const [lists] = await pool.query(
+      `SELECT sl.*, u.username as created_by_username
+       FROM shopping_lists sl
+       LEFT JOIN users u ON sl.created_by = u.id
+       WHERE sl.home_id = ?
+       ORDER BY sl.created_at DESC`,
+      [homeId]
+    );
+
+    res.json(lists);
+  } catch (error) {
+    if (error.status) {
+      return res.status(error.status).json({ error: error.message });
+    }
+    console.error('Error fetching shopping lists:', error);
+    res.status(500).json({ error: 'Failed to fetch shopping lists' });
+  }
+});
+
+// Get active shopping list for a home
+app.get('/api/homes/:id/shopping-lists/active', authenticateToken, async (req, res) => {
+  try {
+    const homeId = req.params.id;
+
+    // Check access
+    await checkHomeAccess(homeId, req.user.userId);
+
+    const [lists] = await pool.query(
+      `SELECT sl.*, u.username as created_by_username
+       FROM shopping_lists sl
+       LEFT JOIN users u ON sl.created_by = u.id
+       WHERE sl.home_id = ? AND sl.status = 'active'
+       ORDER BY sl.created_at DESC
+       LIMIT 1`,
+      [homeId]
+    );
+
+    if (lists.length === 0) {
+      return res.json(null);
+    }
+
+    const list = lists[0];
+
+    // Get items
+    const [items] = await pool.query(
+      'SELECT * FROM shopping_list_items WHERE list_id = ? ORDER BY created_at ASC',
+      [list.id]
+    );
+
+    res.json({
+      ...list,
+      items: items
+    });
+  } catch (error) {
+    if (error.status) {
+      return res.status(error.status).json({ error: error.message });
+    }
+    console.error('Error fetching active shopping list:', error);
+    res.status(500).json({ error: 'Failed to fetch active shopping list' });
+  }
+});
+
+// Create shopping list
+app.post('/api/homes/:id/shopping-lists', authenticateToken, async (req, res) => {
+  try {
+    const homeId = req.params.id;
+    const { name } = req.body;
+
+    if (!name) {
+      return res.status(400).json({ error: 'List name is required' });
+    }
+
+    // Check access
+    await checkHomeAccess(homeId, req.user.userId);
+
+    // Check if there's already an active list
+    const [activeLists] = await pool.query(
+      'SELECT id FROM shopping_lists WHERE home_id = ? AND status = ?',
+      [homeId, 'active']
+    );
+
+    if (activeLists.length > 0) {
+      return res.status(400).json({ error: 'There is already an active shopping list. Please complete it first.' });
+    }
+
+    const [result] = await pool.query(
+      'INSERT INTO shopping_lists (home_id, name, created_by) VALUES (?, ?, ?)',
+      [homeId, name, req.user.userId]
+    );
+
+    const [rows] = await pool.query('SELECT * FROM shopping_lists WHERE id = ?', [result.insertId]);
+    res.status(201).json(rows[0]);
+  } catch (error) {
+    if (error.status) {
+      return res.status(error.status).json({ error: error.message });
+    }
+    console.error('Error creating shopping list:', error);
+    res.status(500).json({ error: 'Failed to create shopping list' });
+  }
+});
+
+// Complete shopping list
+app.put('/api/homes/:id/shopping-lists/:listId/complete', authenticateToken, async (req, res) => {
+  try {
+    const homeId = req.params.id;
+    const listId = req.params.listId;
+
+    // Check access
+    await checkHomeAccess(homeId, req.user.userId);
+
+    const [result] = await pool.query(
+      'UPDATE shopping_lists SET status = ? WHERE id = ? AND home_id = ?',
+      ['completed', listId, homeId]
+    );
+
+    if (result.affectedRows === 0) {
+      return res.status(404).json({ error: 'Shopping list not found' });
+    }
+
+    res.json({ message: 'Shopping list completed' });
+  } catch (error) {
+    if (error.status) {
+      return res.status(error.status).json({ error: error.message });
+    }
+    console.error('Error completing shopping list:', error);
+    res.status(500).json({ error: 'Failed to complete shopping list' });
+  }
+});
+
+// Add item to shopping list
+app.post('/api/shopping-lists/:listId/items', authenticateToken, async (req, res) => {
+  try {
+    const listId = req.params.listId;
+    const { name, quantity } = req.body;
+
+    if (!name) {
+      return res.status(400).json({ error: 'Item name is required' });
+    }
+
+    // Check if user has access to this list's home
+    const [listCheck] = await pool.query(
+      `SELECT sl.home_id 
+       FROM shopping_lists sl
+       WHERE sl.id = ?`,
+      [listId]
+    );
+
+    if (listCheck.length === 0) {
+      return res.status(404).json({ error: 'Shopping list not found' });
+    }
+
+    await checkHomeAccess(listCheck[0].home_id, req.user.userId);
+
+    const [result] = await pool.query(
+      'INSERT INTO shopping_list_items (list_id, name, quantity) VALUES (?, ?, ?)',
+      [listId, name, quantity || null]
+    );
+
+    const [rows] = await pool.query('SELECT * FROM shopping_list_items WHERE id = ?', [result.insertId]);
+    res.status(201).json(rows[0]);
+  } catch (error) {
+    if (error.status) {
+      return res.status(error.status).json({ error: error.message });
+    }
+    console.error('Error adding item to shopping list:', error);
+    res.status(500).json({ error: 'Failed to add item to shopping list' });
+  }
+});
+
+// Update shopping list item
+app.put('/api/shopping-lists/:listId/items/:itemId', authenticateToken, async (req, res) => {
+  try {
+    const listId = req.params.listId;
+    const itemId = req.params.itemId;
+    const { name, quantity, completed } = req.body;
+
+    // Check access
+    const [listCheck] = await pool.query(
+      `SELECT sl.home_id 
+       FROM shopping_lists sl
+       WHERE sl.id = ?`,
+      [listId]
+    );
+
+    if (listCheck.length === 0) {
+      return res.status(404).json({ error: 'Shopping list not found' });
+    }
+
+    await checkHomeAccess(listCheck[0].home_id, req.user.userId);
+
+    const updates = [];
+    const values = [];
+
+    if (name !== undefined) {
+      updates.push('name = ?');
+      values.push(name);
+    }
+    if (quantity !== undefined) {
+      updates.push('quantity = ?');
+      values.push(quantity);
+    }
+    if (completed !== undefined) {
+      updates.push('completed = ?');
+      values.push(completed);
+    }
+
+    if (updates.length === 0) {
+      return res.status(400).json({ error: 'No fields to update' });
+    }
+
+    values.push(itemId, listId);
+    const query = `UPDATE shopping_list_items SET ${updates.join(', ')} WHERE id = ? AND list_id = ?`;
+
+    await pool.query(query, values);
+
+    const [rows] = await pool.query('SELECT * FROM shopping_list_items WHERE id = ? AND list_id = ?', [itemId, listId]);
+    if (rows.length === 0) {
+      return res.status(404).json({ error: 'Item not found' });
+    }
+
+    res.json(rows[0]);
+  } catch (error) {
+    if (error.status) {
+      return res.status(error.status).json({ error: error.message });
+    }
+    console.error('Error updating shopping list item:', error);
+    res.status(500).json({ error: 'Failed to update shopping list item' });
+  }
+});
+
+// Delete shopping list item
+app.delete('/api/shopping-lists/:listId/items/:itemId', authenticateToken, async (req, res) => {
+  try {
+    const listId = req.params.listId;
+    const itemId = req.params.itemId;
+
+    // Check access
+    const [listCheck] = await pool.query(
+      `SELECT sl.home_id 
+       FROM shopping_lists sl
+       WHERE sl.id = ?`,
+      [listId]
+    );
+
+    if (listCheck.length === 0) {
+      return res.status(404).json({ error: 'Shopping list not found' });
+    }
+
+    await checkHomeAccess(listCheck[0].home_id, req.user.userId);
+
+    const [result] = await pool.query(
+      'DELETE FROM shopping_list_items WHERE id = ? AND list_id = ?',
+      [itemId, listId]
+    );
+
+    if (result.affectedRows === 0) {
+      return res.status(404).json({ error: 'Item not found' });
+    }
+
+    res.json({ message: 'Item deleted successfully' });
+  } catch (error) {
+    if (error.status) {
+      return res.status(error.status).json({ error: error.message });
+    }
+    console.error('Error deleting shopping list item:', error);
+    res.status(500).json({ error: 'Failed to delete shopping list item' });
+  }
+});
+
+// Home Items (Inventory) Routes
+
+// Get all home items
+app.get('/api/homes/:id/items', authenticateToken, async (req, res) => {
+  try {
+    const homeId = req.params.id;
+    const { category } = req.query;
+
+    // Check access
+    await checkHomeAccess(homeId, req.user.userId);
+
+    let query = `SELECT hi.*, u.username as created_by_username
+                 FROM home_items hi
+                 LEFT JOIN users u ON hi.created_by = u.id
+                 WHERE hi.home_id = ?`;
+    const params = [homeId];
+
+    if (category) {
+      query += ' AND hi.category = ?';
+      params.push(category);
+    }
+
+    query += ' ORDER BY hi.created_at DESC';
+
+    const [items] = await pool.query(query, params);
+    res.json(items);
+  } catch (error) {
+    if (error.status) {
+      return res.status(error.status).json({ error: error.message });
+    }
+    console.error('Error fetching home items:', error);
+    res.status(500).json({ error: 'Failed to fetch home items' });
+  }
+});
+
+// Create home item
+app.post('/api/homes/:id/items', authenticateToken, async (req, res) => {
+  try {
+    const homeId = req.params.id;
+    const { name, category, quantity, location, expiry_date, notes } = req.body;
+
+    if (!name || !category) {
+      return res.status(400).json({ error: 'Name and category are required' });
+    }
+
+    if (!['fridge', 'pantry', 'storage'].includes(category)) {
+      return res.status(400).json({ error: 'Invalid category. Must be fridge, pantry, or storage' });
+    }
+
+    // Check access
+    await checkHomeAccess(homeId, req.user.userId);
+
+    const [result] = await pool.query(
+      'INSERT INTO home_items (home_id, name, category, quantity, location, expiry_date, notes, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+      [homeId, name, category, quantity || null, location || null, expiry_date || null, notes || null, req.user.userId]
+    );
+
+    const [rows] = await pool.query('SELECT * FROM home_items WHERE id = ?', [result.insertId]);
+    res.status(201).json(rows[0]);
+  } catch (error) {
+    if (error.status) {
+      return res.status(error.status).json({ error: error.message });
+    }
+    console.error('Error creating home item:', error);
+    res.status(500).json({ error: 'Failed to create home item' });
+  }
+});
+
+// Update home item
+app.put('/api/homes/:id/items/:itemId', authenticateToken, async (req, res) => {
+  try {
+    const homeId = req.params.id;
+    const itemId = req.params.itemId;
+    const { name, category, quantity, location, expiry_date, notes } = req.body;
+
+    // Check access
+    await checkHomeAccess(homeId, req.user.userId);
+
+    const updates = [];
+    const values = [];
+
+    if (name !== undefined) {
+      updates.push('name = ?');
+      values.push(name);
+    }
+    if (category !== undefined) {
+      if (!['fridge', 'pantry', 'storage'].includes(category)) {
+        return res.status(400).json({ error: 'Invalid category' });
+      }
+      updates.push('category = ?');
+      values.push(category);
+    }
+    if (quantity !== undefined) {
+      updates.push('quantity = ?');
+      values.push(quantity);
+    }
+    if (location !== undefined) {
+      updates.push('location = ?');
+      values.push(location);
+    }
+    if (expiry_date !== undefined) {
+      updates.push('expiry_date = ?');
+      values.push(expiry_date);
+    }
+    if (notes !== undefined) {
+      updates.push('notes = ?');
+      values.push(notes);
+    }
+
+    if (updates.length === 0) {
+      return res.status(400).json({ error: 'No fields to update' });
+    }
+
+    values.push(itemId, homeId);
+    const query = `UPDATE home_items SET ${updates.join(', ')} WHERE id = ? AND home_id = ?`;
+
+    await pool.query(query, values);
+
+    const [rows] = await pool.query('SELECT * FROM home_items WHERE id = ? AND home_id = ?', [itemId, homeId]);
+    if (rows.length === 0) {
+      return res.status(404).json({ error: 'Item not found' });
+    }
+
+    res.json(rows[0]);
+  } catch (error) {
+    if (error.status) {
+      return res.status(error.status).json({ error: error.message });
+    }
+    console.error('Error updating home item:', error);
+    res.status(500).json({ error: 'Failed to update home item' });
+  }
+});
+
+// Delete home item
+app.delete('/api/homes/:id/items/:itemId', authenticateToken, async (req, res) => {
+  try {
+    const homeId = req.params.id;
+    const itemId = req.params.itemId;
+
+    // Check access
+    await checkHomeAccess(homeId, req.user.userId);
+
+    const [result] = await pool.query(
+      'DELETE FROM home_items WHERE id = ? AND home_id = ?',
+      [itemId, homeId]
+    );
+
+    if (result.affectedRows === 0) {
+      return res.status(404).json({ error: 'Item not found' });
+    }
+
+    res.json({ message: 'Item deleted successfully' });
+  } catch (error) {
+    if (error.status) {
+      return res.status(error.status).json({ error: error.message });
+    }
+    console.error('Error deleting home item:', error);
+    res.status(500).json({ error: 'Failed to delete home item' });
+  }
+});
+
+// Helper function to check home access
+async function checkHomeAccess(homeId, userId) {
+  const [access] = await pool.query(
+    `SELECT 1 
+     FROM homes h
+     LEFT JOIN home_members hm ON h.id = hm.home_id AND hm.user_id = ? AND hm.status = 'accepted'
+     WHERE h.id = ? AND (h.user_id = ? OR (hm.user_id = ? AND hm.status = 'accepted'))`,
+    [userId, homeId, userId, userId]
+  );
+
+  if (access.length === 0) {
+    const error = new Error('Access denied');
+    error.status = 403;
+    throw error;
+  }
+}
 
 // Start server
 app.listen(PORT, '0.0.0.0', () => {

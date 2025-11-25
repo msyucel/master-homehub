@@ -1,0 +1,52 @@
+<div class="home-detail-container">
+  @if (isLoading()) {
+    <div class="loading">Loading home details...</div>
+  }
+
+  @if (errorMessage(); as error) {
+    <div class="error-message">{{ error }}</div>
+  }
+
+  @if (home(); as currentHome) {
+    <div class="home-header">
+      <div class="home-info">
+        <h1>{{ currentHome.name }}</h1>
+        <p class="address">{{ currentHome.address }}</p>
+        <div class="home-meta">
+          <span class="role-badge" [class.owner]="currentHome.user_role === 'owner'">
+            {{ currentHome.user_role === 'owner' ? 'Owner' : 'Member' }}
+          </span>
+          @if (currentHome.members && currentHome.members.length > 0) {
+            <span class="members-count">{{ currentHome.members.length }} member(s)</span>
+          }
+        </div>
+      </div>
+      <button class="back-button" routerLink="/homes">← Back to Homes</button>
+    </div>
+
+    <div class="tabs">
+      <button 
+        class="tab-button" 
+        [class.active]="activeTab() === 'shopping'"
+        (click)="setTab('shopping')">
+        🛒 Shopping List
+      </button>
+      <button 
+        class="tab-button" 
+        [class.active]="activeTab() === 'inventory'"
+        (click)="setTab('inventory')">
+        📦 Inventory
+      </button>
+    </div>
+
+    <div class="tab-content">
+      @if (activeTab() === 'shopping') {
+        <app-shopping-list [homeId]="currentHome.id"></app-shopping-list>
+      }
+      @if (activeTab() === 'inventory') {
+        <app-home-items [homeId]="currentHome.id"></app-home-items>
+      }
+    </div>
+  }
+</div>
+

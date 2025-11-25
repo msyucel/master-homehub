@@ -63,10 +63,10 @@
 
   <div class="homes-grid">
     @for (home of homes(); track home.id) {
-      <div class="home-card">
+      <div class="home-card" (click)="navigateToHomeDetail(home.id)">
         <div class="home-header">
           <h3>{{ home.name }}</h3>
-          <div class="home-actions">
+          <div class="home-actions" (click)="$event.stopPropagation()">
             @if (isOwner(home)) {
               <button class="add-member-button" (click)="openMemberModal(home.id)" title="Add member">
                 👥
