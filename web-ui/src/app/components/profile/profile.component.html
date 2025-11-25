@@ -1,0 +1,43 @@
+<div class="profile-container">
+  <div class="header-section">
+    <h1>👤 My Profile</h1>
+  </div>
+
+  @if (user(); as currentUser) {
+    <div class="profile-card">
+      <div class="profile-header">
+        <div class="profile-avatar">
+          {{ currentUser.first_name.charAt(0).toUpperCase() }}{{ currentUser.last_name.charAt(0).toUpperCase() }}
+        </div>
+        <div class="profile-name">
+          <h2>{{ currentUser.first_name }} {{ currentUser.last_name }}</h2>
+          <p class="username">@{{ currentUser.username }}</p>
+        </div>
+      </div>
+
+      <div class="profile-details">
+        <div class="detail-item">
+          <label>Email</label>
+          <p>{{ currentUser.email }}</p>
+        </div>
+
+        @if (currentUser.phone_number) {
+          <div class="detail-item">
+            <label>Phone Number</label>
+            <p>{{ currentUser.phone_number }}</p>
+          </div>
+        }
+
+        <div class="detail-item">
+          <label>Member Since</label>
+          <p>{{ currentUser.created_at | date:'medium' }}</p>
+        </div>
+      </div>
+
+      <div class="profile-actions">
+        <button class="logout-button" (click)="logout()">Logout</button>
+      </div>
+    </div>
+  }
+</div>
+

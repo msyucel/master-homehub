@@ -1,12 +1,12 @@
 # HomeHub
 
-A full-stack mobile application project with React Native frontend and Node.js backend, orchestrated with Docker Compose.
+A full-stack web application project with Angular frontend and Node.js backend, orchestrated with Docker Compose.
 
 ## Project Structure
 
 ```
 master-homehub/
-├── mobile/          # React Native mobile application
+├── web-ui/          # Angular web application
 ├── backend/         # Node.js Express backend API
 └── docker-compose.yml  # Docker Compose orchestration
 ```
@@ -21,8 +21,9 @@ master-homehub/
    - RESTful API for task management
    - Endpoints: `/api/tasks`
 
-3. **React Native Mobile** - Port 8081
-   - Metro bundler for development
+3. **Angular Web UI** - Port 8080
+   - Angular development server
+   - Web-based user interface
 
 ## Prerequisites
 
@@ -108,11 +109,11 @@ master-homehub/
    npm run dev
    ```
 
-### Mobile App
+### Web UI
 
-1. Navigate to mobile directory:
+1. Navigate to web-ui directory:
    ```bash
-   cd mobile
+   cd web-ui
    ```
 
 2. Install dependencies:
@@ -120,22 +121,19 @@ master-homehub/
    npm install
    ```
 
-3. Start Metro bundler:
+3. Start development server:
    ```bash
    npm start
+   # or
+   npm run dev
    ```
 
-4. Run on iOS:
-   ```bash
-   npm run ios
+4. Open in browser:
+   ```
+   http://localhost:8080
    ```
 
-5. Run on Android:
-   ```bash
-   npm run android
-   ```
-
-**Note:** Make sure to update the API URL in `mobile/App.js` to match your backend URL (use your host machine IP for mobile device testing).
+**Note:** The web UI connects to the backend API at `http://localhost:3001`.
 
 ## Database Schema
 
@@ -180,17 +178,17 @@ This script tests:
 - Network connectivity between services
 - Full CRUD operations (Create, Read, Update, Delete)
 - Data persistence
-- Mobile Metro bundler status
+- Web UI status
 
 The script will output a detailed report with pass/fail status for each test.
 
-The mobile app connects to the backend API at `http://localhost:3001`.
+The web UI connects to the backend API at `http://localhost:3001`.
 
 ## Troubleshooting
 
-1. **Port conflicts:** Make sure ports 3001, 3306, and 8081 are not in use
+1. **Port conflicts:** Make sure ports 3001, 3306, and 8080 are not in use
 2. **Database connection:** The backend will retry connecting to MySQL if it's not ready yet
-3. **Mobile app connection:** Update API URL in `App.js` if running on a physical device
+3. **Web UI connection:** Make sure backend API is running at `http://localhost:3001`
 4. **Docker build issues:** Try `docker-compose build --no-cache`
 5. **Run tests:** Use `./test-e2e.sh` to verify all services are working correctly
 

@@ -1,0 +1,141 @@
+<div class="homes-container">
+  <div class="header-section">
+    <h1>🏠 My Homes</h1>
+    <button class="add-button" (click)="toggleForm()">
+      {{ showForm() ? 'Cancel' : '+ Add Home' }}
+    </button>
+  </div>
+
+  @if (errorMessage(); as error) {
+    <div class="error-message">{{ error }}</div>
+  }
+
+  @if (showForm()) {
+    <div class="form-card">
+      <h2>Add New Home</h2>
+      <form [formGroup]="homeForm" (ngSubmit)="onSubmit()">
+        <div class="form-group">
+          <label for="name">Home Name *</label>
+          <input
+            type="text"
+            id="name"
+            formControlName="name"
+            placeholder="e.g., Main House, Vacation Home"
+            class="form-input"
+          />
+          @if (homeForm.get('name')?.invalid && homeForm.get('name')?.touched) {
+            <span class="error-text">Home name is required</span>
+          }
+        </div>
+
+        <div class="form-group">
+          <label for="address">Address *</label>
+          <textarea
+            id="address"
+            formControlName="address"
+            placeholder="Enter home address"
+            class="form-textarea"
+            rows="3"
+          ></textarea>
+          @if (homeForm.get('address')?.invalid && homeForm.get('address')?.touched) {
+            <span class="error-text">Address is required</span>
+          }
+        </div>
+
+        <div class="form-actions">
+          <button type="submit" class="submit-button" [disabled]="isLoading() || homeForm.invalid">
+            {{ isLoading() ? 'Adding...' : 'Add Home' }}
+          </button>
+        </div>
+      </form>
+    </div>
+  }
+
+  @if (isLoading() && homes().length === 0) {
+    <div class="loading">Loading homes...</div>
+  }
+
+  @if (!isLoading() && homes().length === 0 && !showForm()) {
+    <div class="empty-state">
+      <p>No homes added yet. Click "Add Home" to get started!</p>
+    </div>
+  }
+
+  <div class="homes-grid">
+    @for (home of homes(); track home.id) {
+      <div class="home-card">
+        <div class="home-header">
+          <h3>{{ home.name }}</h3>
+          <div class="home-actions">
+            @if (isOwner(home)) {
+              <button class="add-member-button" (click)="openMemberModal(home.id)" title="Add member">
+                👥
+              </button>
+            }
+            @if (isOwner(home)) {
+              <button class="delete-button" (click)="deleteHome(home.id)" title="Delete home">
+                🗑️
+              </button>
+            }
+          </div>
+        </div>
+        <p class="address">{{ home.address }}</p>
+        <p class="date">Added: {{ home.created_at | date:'medium' }}</p>
+        @if (!isOwner(home)) {
+          <p class="member-badge">Member</p>
+        }
+      </div>
+    }
+  </div>
+
+  <!-- Member Modal -->
+  @if (showMemberModal()) {
+    <div class="modal-overlay" (click)="closeMemberModal()">
+      <div class="modal-content" (click)="$event.stopPropagation()">
+        <div class="modal-header">
+          <h2>Add Family Member to Home</h2>
+          <button class="close-button" (click)="closeMemberModal()">×</button>
+        </div>
+
+        @if (errorMessage(); as error) {
+          <div class="error-message">{{ error }}</div>
+        }
+
+        @if (successMessage(); as success) {
+          <div class="success-message">{{ success }}</div>
+        }
+
+        @if (families().length === 0) {
+          <div class="empty-state">
+            <p>No family members available. Add family members first!</p>
+          </div>
+        } @else {
+          <form [formGroup]="memberForm" (ngSubmit)="onAddMember()">
+            <div class="form-group">
+              <label for="userId">Select Family Member *</label>
+              <select id="userId" formControlName="userId" class="form-input">
+                <option value="">Choose a family member...</option>
+                @for (family of families(); track family.id) {
+                  <option [value]="getFamilyMemberId(family)">
+                    {{ getFamilyMemberName(family) }}
+                  </option>
+                }
+              </select>
+              @if (memberForm.get('userId')?.invalid && memberForm.get('userId')?.touched) {
+                <span class="error-text">Please select a family member</span>
+              }
+            </div>
+
+            <div class="form-actions">
+              <button type="button" class="cancel-button" (click)="closeMemberModal()">Cancel</button>
+              <button type="submit" class="submit-button" [disabled]="isLoading() || memberForm.invalid">
+                {{ isLoading() ? 'Sending...' : 'Send Invitation' }}
+              </button>
+            </div>
+          </form>
+        }
+      </div>
+    </div>
+  }
+</div>
+

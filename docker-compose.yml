@@ -47,28 +47,25 @@ services:
       - /app/node_modules
     command: npm start
 
-  # React Native Mobile (Metro Bundler)
-  mobile:
+  # Angular Web UI
+  web-ui:
     build:
-      context: ./mobile
+      context: ./web-ui
       dockerfile: Dockerfile
-    container_name: homehub-mobile
+    container_name: homehub-web-ui
     restart: unless-stopped
     environment:
-      REACT_NATIVE_PACKAGER_HOSTNAME: localhost
-      NODE_ENV: development
+      NODE_ENV: production
     ports:
-      - "8081:8081"
-      - "19000:19000"
-      - "19001:19001"
+      - "8080:8080"
     depends_on:
       - backend
     networks:
       - homehub-network
     volumes:
-      - ./mobile:/app
+      - ./web-ui:/app
       - /app/node_modules
-    command: npm start
+    command: npm start -- --host 0.0.0.0
 
 networks:
   homehub-network:

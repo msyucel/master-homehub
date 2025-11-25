@@ -1,0 +1,136 @@
+.notifications-container {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 2rem;
+}
+
+.header-section {
+  margin-bottom: 2rem;
+}
+
+.header-section h1 {
+  color: #1a202c;
+  margin: 0;
+}
+
+.error-message {
+  background: #fed7d7;
+  color: #c53030;
+  padding: 1rem;
+  border-radius: 8px;
+  margin-bottom: 1rem;
+}
+
+.loading,
+.empty-state {
+  text-align: center;
+  padding: 3rem;
+  color: #718096;
+}
+
+.notifications-list {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.notification-card {
+  background: white;
+  border-radius: 12px;
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+  padding: 1.5rem;
+  display: flex;
+  gap: 1rem;
+  cursor: pointer;
+  transition: transform 0.2s, box-shadow 0.2s;
+  border-left: 4px solid transparent;
+}
+
+.notification-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 16px rgba(0, 0, 0, 0.15);
+}
+
+.notification-card.unread {
+  border-left-color: #667eea;
+  background: #f7fafc;
+}
+
+.notification-icon {
+  font-size: 2rem;
+  flex-shrink: 0;
+}
+
+.notification-content {
+  flex: 1;
+}
+
+.notification-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.5rem;
+}
+
+.notification-header h3 {
+  margin: 0;
+  color: #1a202c;
+}
+
+.unread-badge {
+  background: #667eea;
+  color: white;
+  padding: 0.25rem 0.75rem;
+  border-radius: 12px;
+  font-size: 0.75rem;
+  font-weight: 500;
+}
+
+.notification-message {
+  color: #4a5568;
+  margin: 0.5rem 0;
+  line-height: 1.6;
+}
+
+.notification-date {
+  color: #718096;
+  font-size: 0.875rem;
+  margin: 0.5rem 0 0 0;
+}
+
+.notification-actions {
+  display: flex;
+  gap: 0.75rem;
+  margin-top: 1rem;
+}
+
+.accept-button {
+  background: #48bb78;
+  color: white;
+  border: none;
+  padding: 0.5rem 1.5rem;
+  border-radius: 6px;
+  cursor: pointer;
+  font-weight: 500;
+  transition: background 0.2s;
+}
+
+.accept-button:hover {
+  background: #38a169;
+}
+
+.reject-button {
+  background: #f56565;
+  color: white;
+  border: none;
+  padding: 0.5rem 1.5rem;
+  border-radius: 6px;
+  cursor: pointer;
+  font-weight: 500;
+  transition: background 0.2s;
+}
+
+.reject-button:hover {
+  background: #e53e3e;
+}
+
