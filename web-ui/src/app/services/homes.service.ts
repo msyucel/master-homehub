@@ -27,6 +27,12 @@ export class HomesService {
     });
   }
 
+  getHomeDetail(id: number): Observable<any> {
+    return this.http.get<any>(`${API_URL}/homes/${id}`, {
+      headers: { Authorization: `Bearer ${this.authService.getToken()}` }
+    });
+  }
+
   createHome(name: string, address: string): Observable<Home> {
     return this.http.post<Home>(`${API_URL}/homes`, { name, address }, {
       headers: { Authorization: `Bearer ${this.authService.getToken()}` }

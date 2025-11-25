@@ -1,6 +1,7 @@
 import { Component, inject, signal, OnInit } from '@angular/core';
 import { CommonModule, DatePipe } from '@angular/common';
 import { FormBuilder, FormGroup, Validators, ReactiveFormsModule } from '@angular/forms';
+import { Router } from '@angular/router';
 import { HomesService, Home } from '../../services/homes.service';
 import { FamiliesService, Family } from '../../services/families.service';
 import { AuthService } from '../../services/auth.service';
@@ -16,6 +17,7 @@ export class HomesComponent implements OnInit {
   private homesService = inject(HomesService);
   private familiesService = inject(FamiliesService);
   private authService = inject(AuthService);
+  private router = inject(Router);
   private fb = inject(FormBuilder);
 
   homes = signal<Home[]>([]);
@@ -168,6 +170,13 @@ export class HomesComponent implements OnInit {
 
   isOwner(home: Home): boolean {
     return home.user_id === this.authService.getUser()?.id;
+  }
+
+  navigateToHomeDetail(homeId: number, event?: Event): void {
+    if (event) {
+      event.stopPropagation();
+    }
+    this.router.navigate(['/homes', homeId]);
   }
 }
 
